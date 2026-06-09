@@ -85,18 +85,96 @@ def init_db():
     conn.close()
 
 
+
 # initialize the dashboard app
 
 app = FastAPI()
 
-# # allow CORS for frontend/backend communication
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["http://localhost:5173", "http://localhost:3000"],
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
+# allow CORS for frontend/backend communication
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8000", "http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# # define allowed columns for querying to prevent SQL injection and ensure only valid queries are made
+# allowed_cols_samples = ['sample_id', 'project_id', 'subject_id', 'time_from_treatment', 'sample_type']
+# allowed_cols_subjects = ['subject_id', 'condition', 'age', 'sex', 'treatment', 'response']
+# allowed_cols_cell_counts = ['sample_id', 'cell_type', 'count']
+
+# # define primary keys for each table to handle pagination and querying
+# primary_key = {
+#     'samples': 'sample_id',
+#     'subjects': 'subject_id',
+#     'cell_counts': 'id'
+# }
+
+
+# for table in ['samples', 'subjects', 'cell_counts']:
+#     if table == 'samples':
+#         allowed_cols = allowed_cols_samples
+#     elif table == 'subjects':
+#         allowed_cols = allowed_cols_subjects
+#     elif table == 'cell_counts':
+#         allowed_cols = allowed_cols_cell_counts
+#     else:
+#         break
+
+#     @app.get(f"/query/{table}/")
+#     def query(*fields, id_start: int = 0, n: int = 100, **kwargs,):
+#         if n > 1000:
+#             n = 1000 # cap n to prevent overload, can implement pagination on frontend if more data is needed
+
+#         # build SQL query based on provided query parameters, checking field is allowed to prevent injection and ensure valid queries
+#         query = f"SELECT {','.join(f for f in fields if f in allowed_cols)} FROM {table}"
+#         conditions = []
+#         params = []
+
+#         for key, value in kwargs.items():
+#             if key not in allowed_cols or key is primary_key[table]: # handle sample id seperately, to control pagination
+#                 continue # avoid injection or invalid query
+#             conditions.append(f"{key} = ?")
+#             params.append(value)
+        
+#         # return rows in batches, don't overload by sending entire table at once.
+#         conditions.append(f"{primary_key[table]} >= ? AND {primary_key[table]} < ? + ?")
+#         params.extend([id_start, id_start, n])
+
+#         if conditions:
+#             query += " WHERE " + " AND ".join(conditions)
+
+#         conn = sqlite3.connect(DB)
+#         df = pd.read_sql_query(query, conn, params=params)
+#         conn.close()
+
+#         return df.to_dict(orient='list')
+
+#     @app.get(f"/sum/{table}/")
+#     def sum(field: str, **kwargs):
+#         if field not in allowed_cols:
+#             return {"error": f"Invalid field for summation: '{field}'"}
+
+#         query = f"SELECT SUM({field}) as total FROM {table}"
+#         conditions = []
+#         params = []
+
+#         for key, value in kwargs.items():
+#             if key not in allowed_cols:
+#                 continue
+#             conditions.append(f"{key} = ?")
+#             params.append(value)
+
+#         if conditions:
+#             query += " WHERE " + " AND ".join(conditions)
+
+#         conn = sqlite3.connect(DB)
+#         df = pd.read_sql_query(query, conn, params=params)
+#         conn.close()
+
+#         return df.to_dict(orient='list')
 
 @app.get("/analysis/frequency_overview/")
 def get_overview(start_sample_id: int, n_samples: int):
