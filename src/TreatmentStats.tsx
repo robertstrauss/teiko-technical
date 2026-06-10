@@ -105,14 +105,14 @@ const TreatmentStats = () => {
                     name: 'Responder',
                     type: 'boxplot',
                     boxWidth: '30%',
-                    data: responders.map(box => [cellXValues[box.cell_type], box.adj_min, box.q1, box.median, box.q3, box.adj_max]),
+                    data: responders.map(box => [cellXValues[box.cell_type], box.adj_min, box.q1, box.median, box.q3, box.adj_max].map(v => v.toFixed(3))),
                     itemStyle: { color: '#bbf7d0', borderColor: '#22c55e', borderWidth: 2 }
                 },
                 {
                     name: 'Non-Responder',
                     type: 'boxplot', 
                     boxWidth: '30%',
-                    data: nonresponders.map(box => [cellXValues[box.cell_type], box.adj_min, box.q1, box.median, box.q3, box.adj_max]),
+                    data: nonresponders.map(box => [cellXValues[box.cell_type], box.adj_min, box.q1, box.median, box.q3, box.adj_max].map(v => v.toFixed(3))),
                     itemStyle: { color: '#fef08a', borderColor: '#eab308', borderWidth: 2 }
                 },
                 // OVERLAY SCATTER SERIES FOR OUTLIERS
@@ -121,14 +121,14 @@ const TreatmentStats = () => {
                 {
                     name: 'Responder',
                     type: 'scatter',
-                    data: responders.map(box => [cellXValues[box.cell_type]-offset, box.outliers]),
+                    data: responders.map(box => [cellXValues[box.cell_type]-offset, box.outliers.map(v => v.toFixed(3))]),
                     marker: 'circle',
                     itemStyle: { color: '#16a34a' }
                 },
                 {
                     name: 'Non-Responder',
                     type: 'scatter',
-                    data: nonresponders.map(box => [cellXValues[box.cell_type]+offset, box.outliers]),
+                    data: nonresponders.map(box => [cellXValues[box.cell_type]+offset, box.outliers.map(v => v.toFixed(3))]),
                     marker: 'circle',
                     itemStyle: { color: '#ca8a04' }
                 }

@@ -59,6 +59,7 @@ main {
 
 .nav-button.active {
     background: #6db4ff;
+    font-weight: bold;
 }
 
 .nav-button:hover {
