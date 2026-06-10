@@ -178,6 +178,9 @@ app.add_middleware(
 
 @app.get("/analysis/frequency_overview/")
 def get_overview(start_sample_id: int, n_samples: int):
+    if (n_samples < 0 or n_samples > 250):
+        n_samples = 250 # Limit max amount sent over in one request, don't overload connection
+
     # pull raw data from DB
     conn = sqlite3.connect(DB)
     df = pd.read_sql_query("""
@@ -205,8 +208,79 @@ def get_overview(start_sample_id: int, n_samples: int):
 
 
 @app.get("/analysis/treatment_statistics")
-def get_statistics():
-    return
+def get_statistics(condition, treatment):
+    conn = sqlite3.connect(DB)
+    # select the cell counts from the cell counts data relevant to the samples done on patients with the given condition and treatment.
+    df = pd.read_sql_query("""            
+        WITH condition_cell_counts AS SELECT """
+                # p.subject_id,
+                # p.condition,
+                # s.sample_id,
+                + """s.time_from_treatment_start,
+                p.response,
+                c.cell_type,
+                c.count
+                SUM(c.count) OVER (PARTITION BY sample_id) AS total
+            FROM subjects p
+            JOIN samples s ON p.subject_id = s.subject_id
+            JOIN cell_counts c ON s.sample_id = c.sample_id
+            WHERE
+                p.condition = ?
+                AND p.treatment = ?
+                AND s.sample_type = 'PBMC'
+        SELECT """
+            # subject_id,
+            # conditiion,
+            # sample_id,
+            +"""time_from_treatment,
+            response
+            cell_type,
+            count * 100.0 / total AS percentage
+        FROM condition_cell_counts
+        """, conn, params=(condition, treatment))
+    conn.close()
+    
+    # compute min, max, quartiles for box plot
+    stats = df.groupby(['cell_type', 'response'])['percentage'].agg(
+        min_val='min',
+        q1= lambda x: x.quantile(0.25),
+        median='median',
+        q3 = lambda x: x.quantile(0.75),
+        max ='max'
+    ).reset_index()
+
+    # caclulate outlier fences
+    iqr = stats['q3']-stats['q1']
+    stats['lower_fence'] = stats['q1'] - 1.5 * iqr
+    stats['upper_fence'] = stats['q3'] + 1.5 * iqr
+
+    # insert stats into data in order to compare with fences
+    merged = df.merge(stats, on=['cell_type', 'response'])
+
+    # Create a boolean mask of what is and isn't an outlier
+    is_outlier = (merged['relative_freq'] < merged['lower_fence']) | \
+                 (merged['relative_freq'] > merged['upper_fence'])
+    
+    # Whiskers of plot - min/max of non outlier in-fence datapoints
+    whiskers = merged[~is_outlier].groupby(['cell_type', 'response'])['percentage'].agg(
+            adj_min='min',
+            adj_max='max'
+        ).reset_index()
+    
+    # outliers - outside fences
+    outliers = merged[is_outlier].groupby(['cell_type', 'response'])['percentage'].apply(list).reset_index(name='outliers')
+
+    # all stats needed for plot
+    final_data = stats.merge(whiskers, on=['cell_type', 'response'], how='left') \
+                      .merge(outliers, on=['cell_type', 'response'], how='left')
+    
+    # prevent NaNs
+    final_data['outliers'] = final_data['outliers'].apply(lambda d: d if isinstance(d, list) else [])
+
+    return final_data.to_dict(orient='records')
+
+
+
 
 @app.get("/analysis/subset/")
 def get_subset(condition: str, sample_type: str, time_from_treatment: int, treatment: str):
