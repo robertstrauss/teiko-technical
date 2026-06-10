@@ -126,8 +126,9 @@ main {
 }
 
 .sectionblock {
-    flex: 1 0 auto;
+    /* flex: 1 0 auto; */
     min-width: 300px;
+    padding: 20px;
     border: 1px solid #ddd;
     border-radius: 8px;
     align-items: center;
@@ -152,20 +153,7 @@ main {
     transform: rotate(90deg);
 }
 
-.chart-container {
-    display: flex;
-    height: 400px;
-    overflow-x: auto;
-    padding: 20px;
-}
 
-.chart-options {
-    padding: 10px;
-    display: flex;
-    gap: 20px;
-    background-color: #f7f7f7;
-    border-top: 1px solid #ddd;
-}
 
 .pagedtable {
     /* flex: 1 1 auto; */
@@ -190,7 +178,7 @@ main {
     margin: 5px;
 }
 
-.data-table {
+table {
     /* width: 100%; */
     border-collapse: collapse;
 }
@@ -202,24 +190,24 @@ thead tr {
     position: sticky;
     top: 0;
 }
-.table-header {
+.data-table tr th {
     padding: 20px;
     font-weight: normal;
     color: #666;
 }
 
 
-.table-row {
+.data-table tbody tr {
     border-bottom: 1px dashed #ddd;
 }
 
-.table-entry {
+.data-table td {
     text-align: left;
     padding: 22px;
     border: none;
 }
 
-.table-entry:not(:first-child) {
+.data-table td:not(:first-child) {
     text-align: right;
 }
 

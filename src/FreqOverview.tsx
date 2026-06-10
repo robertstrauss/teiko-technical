@@ -193,11 +193,11 @@ const FreqOverview = () => {
                             <table className="data-table">
                                 <thead>
                                     <tr>
-                                        <th className="table-header">Sample</th>
-                                        <th className="table-header">Total Count</th>
-                                        <th className="table-header">Population</th>
-                                        <th className="table-header">Count</th>
-                                        <th className="table-header">Percentage</th>
+                                        <th>Sample</th>
+                                        <th>Total Count</th>
+                                        <th>Population</th>
+                                        <th>Count</th>
+                                        <th>Percentage</th>
                                     </tr>
                                 </thead>
                                 <tbody >

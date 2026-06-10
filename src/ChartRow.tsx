@@ -2,8 +2,8 @@ import { useRef, useEffect, useState } from "react";
 import React from "react";
 
 interface ResponsiveGridProps {
-  children: React.ReactElement | React.ReactElement[];
-  minCardWidth?: string; // e.g., '350px' or '400px'
+    children: React.ReactElement | React.ReactElement[];
+    minCardWidth?: string; // e.g., '350px' or '400px'
 //   rowGap?: string;       // e.g., '24px'
 //   cardHeight?: string;   // e.g., '350px'
 }
