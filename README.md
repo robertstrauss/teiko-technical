@@ -15,7 +15,7 @@ $ ./load_data.sh [port] # port optional, default is 8000
 
 Prepare and run the React app frontend:
 ```sh
-$ npm install && npm build
+$ npm install && npm run build
 $ npm start
 ```
 
