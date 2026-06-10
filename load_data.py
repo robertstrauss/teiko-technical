@@ -25,7 +25,7 @@ def init_db():
             sample_id INTEGER PRIMARY KEY,
             project_id TEXT,
             subject_id TEXT,
-            time_from_treatment INTEGER,
+            time_from_treatment_start INTEGER,
             sample_type TEXT
         )''')
     c.execute('''
@@ -52,7 +52,10 @@ def init_db():
     if c.fetchone()[0] > 0:
         print("Data already loaded, skipping CSV import.")
         conn.close()
+        print("EXISTING DATABASE FOUND")
         return
+
+    print("INITIALIZING DATABASE...")
     
     with open('cell-count.csv', 'r') as file:
         csv_reader = csv.DictReader(file)
@@ -60,7 +63,7 @@ def init_db():
         for row in csv_reader:
             # read in the sample metadata to the samples table
             c.execute("""
-                INSERT INTO samples (sample_id, project_id, subject_id, time_from_treatment, sample_type)
+                INSERT INTO samples (sample_id, project_id, subject_id, time_from_treatment_start, sample_type)
                 VALUES (?, ?, ?, ?, ?);
             """, (int(getnumber.search(row['sample']).group()), row['project'], row['subject'], int(row['time_from_treatment_start']), row['sample_type']))
 
@@ -84,6 +87,8 @@ def init_db():
     conn.commit()
     conn.close()
 
+    print("DONE")
+
 
 
 # initialize the dashboard app
@@ -101,7 +106,7 @@ app.add_middleware(
 
 
 # # define allowed columns for querying to prevent SQL injection and ensure only valid queries are made
-# allowed_cols_samples = ['sample_id', 'project_id', 'subject_id', 'time_from_treatment', 'sample_type']
+# allowed_cols_samples = ['sample_id', 'project_id', 'subject_id', 'time_from_treatment_start', 'sample_type']
 # allowed_cols_subjects = ['subject_id', 'condition', 'age', 'sex', 'treatment', 'response']
 # allowed_cols_cell_counts = ['sample_id', 'cell_type', 'count']
 
@@ -181,7 +186,7 @@ def get_overview(start_sample_id: int, n_samples: int):
     if (n_samples < 0 or n_samples > 250):
         n_samples = 250 # Limit max amount sent over in one request, don't overload connection
 
-    # pull raw data from DB
+    # get the requested info: sample, cell population, count, and total. Also process into relative frequency
     conn = sqlite3.connect(DB)
     df = pd.read_sql_query("""
             WITH counts_and_total AS (
@@ -197,51 +202,53 @@ def get_overview(start_sample_id: int, n_samples: int):
                 cell_type,
                 count,
                 total,
-                count * 100.0 / total AS percentage
+                count * 1.0 / total AS relative_freq
             FROM counts_and_total
         """, conn, params=(start_sample_id, start_sample_id, n_samples))
     conn.close()
     # single source of truth: only compute cell count totals on query
 
-    return df.to_dict(orient='list')
+    return df.to_dict(orient='list') # serialize as dict of lists not list of dicts, to reduce size during push over the network
     
 
 
-@app.get("/analysis/treatment_statistics")
-def get_statistics(condition, treatment):
+@app.get("/analysis/treatment_statistics/")
+def get_statistics(condition, treatment, sample_type):
     conn = sqlite3.connect(DB)
-    # select the cell counts from the cell counts data relevant to the samples done on patients with the given condition and treatment.
+
+    # get the cell populations and response data relevant to samples done on patients with the given condition and treatment.
+    # patient and cell count data is seperated out for DB stability, need to use JOIN to look get corresponding records.
     df = pd.read_sql_query("""            
-        WITH condition_cell_counts AS SELECT """
+        WITH condition_cell_counts AS (SELECT """
                 # p.subject_id,
                 # p.condition,
                 # s.sample_id,
                 + """s.time_from_treatment_start,
                 p.response,
                 c.cell_type,
-                c.count
-                SUM(c.count) OVER (PARTITION BY sample_id) AS total
+                c.count,
+                SUM(c.count) OVER (PARTITION BY c.sample_id) AS total
             FROM subjects p
             JOIN samples s ON p.subject_id = s.subject_id
             JOIN cell_counts c ON s.sample_id = c.sample_id
             WHERE
                 p.condition = ?
                 AND p.treatment = ?
-                AND s.sample_type = 'PBMC'
-        SELECT """
+                AND s.sample_type = ?
+        ) SELECT """
             # subject_id,
             # conditiion,
             # sample_id,
-            +"""time_from_treatment,
-            response
+            +"""time_from_treatment_start,
+            response,
             cell_type,
-            count * 100.0 / total AS percentage
+            count * 1.0 / total AS relative_freq
         FROM condition_cell_counts
-        """, conn, params=(condition, treatment))
+        """, conn, params=(condition, treatment, sample_type))
     conn.close()
     
     # compute min, max, quartiles for box plot
-    stats = df.groupby(['cell_type', 'response'])['percentage'].agg(
+    stats = df.groupby(['cell_type', 'response', 'time_from_treatment_start'])['relative_freq'].agg(
         min_val='min',
         q1= lambda x: x.quantile(0.25),
         median='median',
@@ -255,35 +262,37 @@ def get_statistics(condition, treatment):
     stats['upper_fence'] = stats['q3'] + 1.5 * iqr
 
     # insert stats into data in order to compare with fences
-    merged = df.merge(stats, on=['cell_type', 'response'])
+    merged = df.merge(stats, on=['cell_type', 'response', 'time_from_treatment_start'])
 
     # Create a boolean mask of what is and isn't an outlier
     is_outlier = (merged['relative_freq'] < merged['lower_fence']) | \
                  (merged['relative_freq'] > merged['upper_fence'])
     
     # Whiskers of plot - min/max of non outlier in-fence datapoints
-    whiskers = merged[~is_outlier].groupby(['cell_type', 'response'])['percentage'].agg(
+    whiskers = merged[~is_outlier].groupby(['cell_type', 'response', 'time_from_treatment_start'])['relative_freq'].agg(
             adj_min='min',
             adj_max='max'
         ).reset_index()
     
     # outliers - outside fences
-    outliers = merged[is_outlier].groupby(['cell_type', 'response'])['percentage'].apply(list).reset_index(name='outliers')
+    outliers = merged[is_outlier].groupby(['cell_type', 'response', 'time_from_treatment_start'])['relative_freq'].apply(list).reset_index(name='outliers')
 
     # all stats needed for plot
-    final_data = stats.merge(whiskers, on=['cell_type', 'response'], how='left') \
-                      .merge(outliers, on=['cell_type', 'response'], how='left')
+    final_data = stats.merge(whiskers, on=['cell_type', 'response', 'time_from_treatment_start'], how='left') \
+                      .merge(outliers, on=['cell_type', 'response', 'time_from_treatment_start'], how='left')
     
     # prevent NaNs
     final_data['outliers'] = final_data['outliers'].apply(lambda d: d if isinstance(d, list) else [])
 
-    return final_data.to_dict(orient='records')
+    # print(final_data)
+
+    return final_data.to_dict(orient='list')
 
 
 
 
 @app.get("/analysis/subset/")
-def get_subset(condition: str, sample_type: str, time_from_treatment: int, treatment: str):
+def get_subset(condition: str, sample_type: str, time_from_treatment_start: int, treatment: str):
     conn = sqlite3.connect(DB)
     df = pd.read_sql_query("""
         SELECT
@@ -295,8 +304,8 @@ def get_subset(condition: str, sample_type: str, time_from_treatment: int, treat
             SUM(CASE WHEN sex = 'F' THEN 1 ELSE 0 END) AS n_female,
             project_id,
             COUNT(project_id) AS n_in_project
-        FROM samples WHERE condition = ? AND sample_type = ? AND time_from_treatment = ? AND treatment = ?
-    """, conn, params=(condition, sample_type, time_from_treatment, treatment))
+        FROM samples WHERE condition = ? AND sample_type = ? AND time_from_treatment_start = ? AND treatment = ?
+    """, conn, params=(condition, sample_type, time_from_treatment_start, treatment))
     conn.close()
 
     return df.to_dict(orient='list')
