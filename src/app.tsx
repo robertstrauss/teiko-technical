@@ -4,12 +4,9 @@ import FreqOverview from './FreqOverview';
 import TreatmentStats from './TreatmentStats';
 import SubsetAnalysis from './SubsetAnalysis';
 
-
-const COLUMNS_SAMPLES = ['sample_id', 'project_id', 'subject_id', 'time_from_treatment', 'sample_type'];
-const COLUMNS_SUBJECTS = ['subject_id', 'condition', 'age', 'sex', 'treatment', 'response'];
-const COLUMNS_CELLS = ['sample_id', 'cell_type', 'count'];
-
-
+// const COLUMNS_SAMPLES = ['sample_id', 'project_id', 'subject_id', 'time_from_treatment', 'sample_type'];
+// const COLUMNS_SUBJECTS = ['subject_id', 'condition', 'age', 'sex', 'treatment', 'response'];
+// const COLUMNS_CELLS = ['sample_id', 'cell_type', 'count'];
 
 
 const App = () => {

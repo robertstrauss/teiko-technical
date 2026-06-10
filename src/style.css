@@ -111,7 +111,9 @@ main {
     border-radius: 4px;
 }
 
-.collapsible-section {
+.section {
+    padding: 20px 20px;
+    gap: 10px;
     display: flex;
     flex-direction: row;
     flex-wrap: wrap;
@@ -121,6 +123,15 @@ main {
     background-color: #fff;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     overflow: hidden;
+}
+
+.sectionblock {
+    flex: 1 0 auto;
+    min-width: 300px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    align-items: center;
+    justify-content: center;
 }
 
 .collapsible-header {
@@ -157,11 +168,13 @@ main {
 }
 
 .pagedtable {
-    flex: 1 1 auto;
+    /* flex: 1 1 auto; */
     display: flex;
     align-items: center;
     justify-content: center;
     flex-direction: column;
+    border: 1px solid #ddd;
+    border-radius: 8px;
 }
 
 .table-paginator {
@@ -173,10 +186,8 @@ main {
 .table-container {
     display: inline-block;
     max-height: 70vh;
-    border: 1px solid #ddd;
-    border-radius: 8px;
     overflow-y: auto;
-    margin: 15px;
+    margin: 5px;
 }
 
 .data-table {
@@ -187,7 +198,7 @@ main {
 thead tr {
     font-weight: normal;
     /* border-bottom: 1px solid #888; */
-    background-color: #ddd;
+    background-color: #ecefef;
     position: sticky;
     top: 0;
 }
@@ -214,7 +225,10 @@ thead tr {
 
 
 
-.graphrow {
+.chartrow {
     display: flex;
     flex-direction: row;
+    flex-wrap: wrap;
+    gap: 20px;
+    width: 100%;
 }
