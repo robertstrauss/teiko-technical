@@ -65,10 +65,24 @@ const TreatmentStats = () => {
 
     return (<>
         {error && <p className="error-message">{error}</p>}
-        
+        <div className="header">
+            <h1>Cell population statistics: {treatment} response for {condition} patients</h1>
+        </div>
+        <div className="section">
+        <div className="options">
+            Filter by:
+            <table>
+                <tr><td>Condition</td> <td><select><option>melanoma</option></select></td></tr>
+                <tr><td>Treatment</td> <td><select><option>miractrb</option></select></td></tr>
+                <tr><td>Response</td> <td><input type="checkbox" checked/> yes &nbsp; <input type="checkbox" checked/> no</td></tr>
+                <tr><td>Days from treatment</td> <td><input type="checkbox" checked/> 0 &nbsp; <input type="checkbox" checked/> 7 &nbsp;  <input type="checkbox" checked/> 14</td></tr>
+                <tr><td>Sample types</td> <td><input type="checkbox" checked/> PBMC &nbsp; </td></tr>
+                <tr><td>Projects</td> <td><input type="checkbox" checked/> 1 &nbsp; </td></tr>
+            </table>
+        </div>
         {['yes', 'no'].map(resp => (
             <div className="graphrow">
-                <h3>{resp == 'no' ? 'Non-' : ''}Responders</h3>
+                <h3 style={{writingMode: 'sideways-lr', textAlign: 'center'}}>{resp == 'no' ? 'Non-' : ''}Responders</h3>
                 {[0, 7, 14].map(tfts => {
                     const filteredData = data.filter(d => (d.response == resp && d.time_from_treatment_start == tfts));
                     return (
@@ -98,6 +112,7 @@ const TreatmentStats = () => {
                 )})}
             </div>
         ))}
+        </div>
     </>);
 };
 

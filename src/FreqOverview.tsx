@@ -29,7 +29,7 @@ const FreqOverview = () => {
             try {
                 const response = await axios.get(`http://localhost:8000/analysis/frequency_overview/?start_sample_id=${startSample}&n_samples=${numSamples}`);
                 const rawData = response.data;
-                // unpack list into records
+                // unpack list into records ( {col: [val1, val2, ...]} -> [{col: val1}, {col: val2}, ...] )
                 const transformedData: FrequencyData[] = rawData.cell_type.map((_: any, index: number) => (
                     Object.fromEntries(DATA_KEYS.map(key => [key, rawData[key][index]]))
                 ));
@@ -54,7 +54,7 @@ const FreqOverview = () => {
         };
 
         fetchData();
-    }, [startSample, numSamples, loading]);
+    }, [startSample, numSamples]);
 
 
 
@@ -157,7 +157,7 @@ const FreqOverview = () => {
                     </div>
                 </div> */}
 
-                <div className="collapsible-section">
+                <div className="section">
                     {/* <div className="collapsible-header" onClick={() => setTableVisible(!tableVisible)}>
                         <span className={`collapsible-icon ${tableVisible ? 'open' : ''}`}>&#9656;</span>
                         <h3>Data</h3>

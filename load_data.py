@@ -65,7 +65,7 @@ def init_db():
             c.execute("""
                 INSERT INTO samples (sample_id, project_id, subject_id, time_from_treatment_start, sample_type)
                 VALUES (?, ?, ?, ?, ?);
-            """, (int(getnumber.search(row['sample']).group()), row['project'], row['subject'], int(row['time_from_treatment_start']), row['sample_type']))
+            """, (int(getnumber.search(row['sample']).group()), row['project'], row['subject'], row['time_from_treatment_start'], row['sample_type']))
 
             # insert patient data if new subject_id is encountered
             c.execute("""
@@ -106,9 +106,9 @@ app.add_middleware(
 
 
 # # define allowed columns for querying to prevent SQL injection and ensure only valid queries are made
-# allowed_cols_samples = ['sample_id', 'project_id', 'subject_id', 'time_from_treatment_start', 'sample_type']
-# allowed_cols_subjects = ['subject_id', 'condition', 'age', 'sex', 'treatment', 'response']
-# allowed_cols_cell_counts = ['sample_id', 'cell_type', 'count']
+allowed_cols_samples = ['sample_id', 'project_id', 'subject_id', 'time_from_treatment_start', 'sample_type']
+allowed_cols_subjects = ['subject_id', 'condition', 'age', 'sex', 'treatment', 'response']
+allowed_cols_cell_counts = ['sample_id', 'cell_type', 'count']
 
 # # define primary keys for each table to handle pagination and querying
 # primary_key = {
@@ -180,6 +180,19 @@ app.add_middleware(
 #         conn.close()
 
 #         return df.to_dict(orient='list')
+
+
+@app.get('/entry_values/')
+def get_entry_values(col: str):
+    conn = sqlite3.connect(DB)
+    df = pd.read_sql_query("""
+            SELECT ?
+            FROM samples
+            GROUP BY ?
+        """, conn, params=(col, col))
+    conn.close()
+    
+    return df.to_dict(orient='list')
 
 @app.get("/analysis/frequency_overview/")
 def get_overview(start_sample_id: int, n_samples: int):
@@ -284,30 +297,41 @@ def get_statistics(condition, treatment, sample_type):
     # prevent NaNs
     final_data['outliers'] = final_data['outliers'].apply(lambda d: d if isinstance(d, list) else [])
 
-    # print(final_data)
-
     return final_data.to_dict(orient='list')
 
 
 
 
 @app.get("/analysis/subset/")
-def get_subset(condition: str, sample_type: str, time_from_treatment_start: int, treatment: str):
-    conn = sqlite3.connect(DB)
-    df = pd.read_sql_query("""
-        SELECT
-            sample_id,
-            COUNT(SAMPLE_ID) AS n_samples,
-            SUM(CASE WHEN response = 'yes' THEN 1 ELSE 0 END) AS n_responders,
-            SUM(CASE WHEN response = 'no' THEN 1 ELSE 0 END) AS n_non_responders,
-            SUM(CASE WHEN sex = 'M' THEN 1 ELSE 0 END) AS n_male,
-            SUM(CASE WHEN sex = 'F' THEN 1 ELSE 0 END) AS n_female,
-            project_id,
-            COUNT(project_id) AS n_in_project
-        FROM samples WHERE condition = ? AND sample_type = ? AND time_from_treatment_start = ? AND treatment = ?
-    """, conn, params=(condition, sample_type, time_from_treatment_start, treatment))
-    conn.close()
+def get_subset(condition: str, treatment: str, sample_type: str, time_from_treatment_start: int):
+    partitions = ['sex', 'response', 'project_id'];
+    partitionquery = []
+    for field in partitions:
+        if field in allowed_cols_samples:
+            partitionquery.append(f"s.{field}")
+        elif field in allowed_cols_subjects:
+            partitionquery.append(f"p.{field}")
+        elif field in allowed_cols_cell_counts:
+            partitionquery.append(f"c.{field}")
+    pq = ', '.join(partitionquery)
+    # f-strings safe from here, since we explicitly check it is one of limited options.
 
+    conn = sqlite3.connect(DB)
+    df = pd.read_sql_query(f"""
+        SELECT
+            COUNT(s.sample_id) AS n_samples,
+            {pq}
+        FROM samples s
+        JOIN subjects p ON s.subject_id = p.subject_id
+        JOIN cell_counts c ON c.sample_id = s.sample_id
+        WHERE p.condition = ? 
+        AND s.sample_type = ? 
+        AND s.time_from_treatment_start = ? 
+        AND p.treatment = ?
+        GROUP BY {pq};
+    """, conn, params=(condition, sample_type.upper(), time_from_treatment_start, treatment))
+    conn.close()
+    
     return df.to_dict(orient='list')
 
 

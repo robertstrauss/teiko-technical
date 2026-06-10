@@ -2,6 +2,162 @@
 import { useRef, useEffect, useState } from "react";
 
 
+import axios from "axios";
+import Plot from 'react-plotly.js';
+
+
+interface TreatmentData {
+    cell_type: string;
+    response: 'yes' | 'no';
+    time_from_treatment_start: number;
+    adj_min: number;
+    q1: number;
+    median: number;
+    q3: number;
+    adj_max: number;
+    outliers: number[];
+}
+
+const DATA_KEYS = ['cell_type', 'response', 'time_from_treatment_start', 'adj_min', 'q1', 'median', 'q3', 'adj_max', 'outliers'];
+
+const CustomStats = () => {
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [data, setData] = useState<TreatmentData[]>([]);
+    const [possibleOptions, setPossibleOptions] = useState<{[key: string]: string[]}>({condition: [], treament: [], response: [], time_from_treatment_start: [], sample_type: [], project_id: []});
+    const [query, setQuery] = useState<{[key: string]: string[]}>({});
+
+    // setPossibleOptions({condition: [], treament: [], response: [], time_from_treatment_start: [], sample_type: [], project_id: []});
+
+    useEffect(() => {
+        if (loading) return;
+
+        const fetchData = async () => {
+            setLoading(true);
+            setError(null);
+            try {
+                const querystring = Object.entries(query).map(([col, vals]) => `${col}=${vals.join(',')}`).join('&')
+                const response = await axios.get(`http://localhost:8000/analysis/treatment_statistics/?`);
+                const rawData = response.data;
+                // unpack list into records
+                const transformedData: TreatmentData[] = rawData.cell_type.map((_: any, index: number) => (
+                    Object.fromEntries(DATA_KEYS.map(key => [key, rawData[key][index]]))
+                ));
+
+                setData(transformedData);
+            } catch (err) {
+                if (axios.isAxiosError(err)) {
+                    if (err.response) {
+                        setError(`Error: ${err.response.status} ${err.response.statusText}`);
+                    } else if (err.request) {
+                        setError('Network Error: No response received from server.');
+                    } else {
+                        setError(`Error: ${err.message}`);
+                    }
+                } else {
+                    setError('An unexpected error occurred.');
+                }
+                console.error(err);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchData();
+    }, [query]);
+
+
+    useEffect(() => {
+        if (loading) return;
+
+        const fetchEntries = async () => {
+            setLoading(true);
+            setError(null);
+            try {
+
+                for (let col in possibleOptions) {
+                    axios.get(`http://localhost:8000/entry_values/?col=${col}`).then(response => {
+                        if (response.data[col])
+                        possibleOptions[col] = response.data[col];
+                        setPossibleOptions(possibleOptions);
+                    })
+                }
+            } catch (err) {
+                if (axios.isAxiosError(err)) {
+                    if (err.response) {
+                        setError(`Error: ${err.response.status} ${err.response.statusText}`);
+                    } else if (err.request) {
+                        setError('Network Error: No response received from server.');
+                    } else {
+                        setError(`Error: ${err.message}`);
+                    }
+                } else {
+                    setError('An unexpected error occurred.');
+                }
+                console.error(err);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchEntries();
+    }, []); // future: depend on dataset currently connected to
+
+
+
+    return (<>
+        {error && <p className="error-message">{error}</p>}
+        <div className="header">
+            <h1>Cell population statistics</h1>
+        </div>
+        <div className="section">
+        <div className="options">
+            Filter by:
+            <table>
+                <tr><td>Condition</td> <td> {possibleOptions.condition.map(opt => (<><input type="checkbox"/> {opt} &nbsp;</>))} </td></tr>
+                <tr><td>Treatment</td> <td><select><option>miractrb</option></select></td></tr>
+                <tr><td>Response</td> <td><input type="checkbox" checked/> yes &nbsp; <input type="checkbox" checked/> no</td></tr>
+                <tr><td>Days from treatment</td> <td><input type="checkbox" checked/> 0 &nbsp; <input type="checkbox" checked/> 7 &nbsp;  <input type="checkbox" checked/> 14</td></tr>
+                <tr><td>Sample types</td> <td><input type="checkbox" checked/> PBMC &nbsp; </td></tr>
+                <tr><td>Projects</td> <td><input type="checkbox" checked/> 1 &nbsp; </td></tr>
+            </table>
+        </div>
+        {['yes', 'no'].map(resp => (
+            <div className="graphrow">
+                <h3 style={{writingMode: 'sideways-lr', textAlign: 'center'}}>{resp == 'no' ? 'Non-' : ''}Responders</h3>
+                {[0, 7, 14].map(tfts => {
+                    const filteredData = data.filter(d => (d.response == resp && d.time_from_treatment_start == tfts));
+                    return (
+                    <div>
+                        <Plot
+                            data={[{
+                                type: 'box',
+                                name: `${tfts} days since treatment began`,
+                                q1: filteredData.map(d => d.q1),
+                                median: filteredData.map(d => d.median),
+                                q3: filteredData.map(d => d.q3),
+                                lowerfence: filteredData.map(d => d.adj_min),
+                                upperfence: filteredData.map(d => d.adj_max),
+                                x: filteredData.map(d => d.cell_type),
+                                // y: filteredData.map(d => d.outliers).flat(),
+                                // boxpoints: 'outliers',
+
+                            } as any]}
+                            layout={{
+                                title: { text:`${tfts} days since treatment began` },
+                                yaxis: { title: {text: 'Relative Frequency'} },
+                                showlegend: false
+                            }}
+                            style={{ width: '100%', height: '500px' }}
+                        />
+                    </div>
+                )})}
+            </div>
+        ))}
+        </div>
+    </>);
+};
+
 // const dataTool = () => {
 
 //     const [table, setTable] = useState();
