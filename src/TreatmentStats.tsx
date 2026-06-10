@@ -83,14 +83,14 @@ const TreatmentStats = () => {
                                 lowerfence: filteredData.map(d => d.adj_min),
                                 upperfence: filteredData.map(d => d.adj_max),
                                 x: filteredData.map(d => d.cell_type),
-                                y: filteredData.map(d => d.outliers).flat(),
-                                boxpoints: 'outliers',
+                                // y: filteredData.map(d => d.outliers).flat(),
+                                // boxpoints: 'outliers',
 
-                            }]}
+                            } as any]}
                             layout={{
                                 title: { text:`${tfts} days since treatment began` },
                                 yaxis: { title: {text: 'Relative Frequency'} },
-                                showlegend: true
+                                showlegend: false
                             }}
                             style={{ width: '100%', height: '500px' }}
                         />

@@ -3,7 +3,7 @@ body {
     margin: 0 auto;
     max-width: 100%;
     /* padding: 20px; */
-    background-color: #f0f2f5;
+    background-color: #f0f0f0;
     color: #333;
     font-family: Arial, Helvetica, sans-serif;
     font-size: 14px;
@@ -112,6 +112,9 @@ main {
 }
 
 .collapsible-section {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
     margin-bottom: 20px;
     border: 1px solid #ddd;
     border-radius: 8px;
@@ -153,12 +156,27 @@ main {
     border-top: 1px solid #ddd;
 }
 
+.pagedtable {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+}
+
+.table-paginator {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 10px;
+}
 .table-container {
     display: inline-block;
     max-height: 70vh;
     border: 1px solid #ddd;
     border-radius: 8px;
     overflow-y: auto;
+    margin: 15px;
 }
 
 .data-table {
@@ -192,4 +210,11 @@ thead tr {
 
 .table-entry:not(:first-child) {
     text-align: right;
+}
+
+
+
+.graphrow {
+    display: flex;
+    flex-direction: row;
 }
