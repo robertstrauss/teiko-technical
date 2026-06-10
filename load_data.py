@@ -329,7 +329,7 @@ def get_subset(condition: str, treatment: str, sample_type: str, time_from_treat
         AND s.time_from_treatment_start = ? 
         AND p.treatment = ?
         GROUP BY {pq};
-    """, conn, params=(condition, sample_type.upper(), time_from_treatment_start, treatment))
+    """, conn, params=(condition, sample_type, time_from_treatment_start, treatment))
     conn.close()
     
     return df.to_dict(orient='list')
