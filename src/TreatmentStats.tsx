@@ -1,9 +1,11 @@
 import { useRef, useEffect, useState } from "react";
 import axios from "axios";
-import Plot from 'react-plotly.js';
+// import Plot from 'react-plotly.js';
+import ChartRow from "./ChartRow";
+import ReactECharts from "echarts-for-react";
 
 
-interface TreatmentData {
+interface TreatmentBoxStats {
     cell_type: string;
     response: 'yes' | 'no';
     time_from_treatment_start: number;
@@ -20,7 +22,7 @@ const DATA_KEYS = ['cell_type', 'response', 'time_from_treatment_start', 'adj_mi
 const TreatmentStats = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [data, setData] = useState<TreatmentData[]>([]);
+    const [data, setData] = useState<TreatmentBoxStats[]>([]);
     const [condition, setCondition] = useState<string>('melanoma');
     const [treatment, setTreatment] = useState<string>('miraclib');
     const [sample_type, setSampleType] = useState<string>('PBMC');
@@ -35,7 +37,7 @@ const TreatmentStats = () => {
                 const response = await axios.get(`http://localhost:8000/analysis/treatment_statistics/?condition=${condition}&treatment=${treatment}&sample_type=${sample_type}`);
                 const rawData = response.data;
                 // unpack list into records
-                const transformedData: TreatmentData[] = rawData.cell_type.map((_: any, index: number) => (
+                const transformedData: TreatmentBoxStats[] = rawData.cell_type.map((_: any, index: number) => (
                     Object.fromEntries(DATA_KEYS.map(key => [key, rawData[key][index]]))
                 ));
 
@@ -61,6 +63,79 @@ const TreatmentStats = () => {
         fetchData();
     }, [treatment, condition, sample_type]);
 
+    const getBoxPlotOptions = (boxes: TreatmentBoxStats[]) => {
+        const cellTypes = Array.from(new Set(boxes.reduce((types, box) => {
+            types.push(box.cell_type);
+            return types;
+        }, [] as string[])));
+
+        const cellXValues = Object.fromEntries(cellTypes.map((type, i) => [type, i]));
+        const responders = boxes.filter(stat => stat.response == 'yes');
+        const nonresponders = boxes.filter(stat => stat.response == 'no');
+        const offset = 0.23;
+
+        return {
+            title: { text: 'Cell Population Frequency by Phenotype', left: 'center' },
+            tooltip: { trigger: 'item', axisPointer: { type: 'shadow' } },
+            legend: { data: ['Responder', 'Non-Responder'], bottom: '0%' },
+            // Define shared visual grids so scatter dots line up over the shifted boxes
+            grid: { left: '10%', right: '10%', bottom: '25%' },
+            xAxis: {
+                type: 'value',
+                min: -0.2, max: cellTypes.length-0.8,
+                interval: 1,
+                // data: cellTypes,
+                splitLine: {show: false},
+                axisLabel: {
+                    customValues: Object.values(cellXValues),
+                    formatter: (value: number) => cellTypes[value],
+                    rotate: 45,
+                },
+                axisTick: {
+                    customValues: Object.values(cellXValues)
+                }
+            },
+            yAxis: {
+                type: 'value',
+                name: 'Relative Frequency',
+                splitArea: { show: true }
+            },
+            series: [
+                {
+                    name: 'Responder',
+                    type: 'boxplot',
+                    boxWidth: '30%',
+                    data: responders.map(box => [cellXValues[box.cell_type], box.adj_min, box.q1, box.median, box.q3, box.adj_max]),
+                    itemStyle: { color: '#bbf7d0', borderColor: '#22c55e', borderWidth: 2 }
+                },
+                {
+                    name: 'Non-Responder',
+                    type: 'boxplot', 
+                    boxWidth: '30%',
+                    data: nonresponders.map(box => [cellXValues[box.cell_type], box.adj_min, box.q1, box.median, box.q3, box.adj_max]),
+                    itemStyle: { color: '#fef08a', borderColor: '#eab308', borderWidth: 2 }
+                },
+                // OVERLAY SCATTER SERIES FOR OUTLIERS
+                // ECharts automatically shifts scatter points to align with the box categories 
+                // if they share the same 'name' identifier as the parent box series
+                {
+                    name: 'Responder',
+                    type: 'scatter',
+                    data: responders.map(box => [cellXValues[box.cell_type]-offset, box.outliers]),
+                    marker: 'circle',
+                    itemStyle: { color: '#16a34a' }
+                },
+                {
+                    name: 'Non-Responder',
+                    type: 'scatter',
+                    data: nonresponders.map(box => [cellXValues[box.cell_type]+offset, box.outliers]),
+                    marker: 'circle',
+                    itemStyle: { color: '#ca8a04' }
+                }
+            ]
+        };
+    };
+
 
 
     return (<>
@@ -69,49 +144,35 @@ const TreatmentStats = () => {
             <h1>Cell population statistics: {treatment} response for {condition} patients</h1>
         </div>
         <div className="section">
-        <div className="options">
+        {/* <div className="options">
             Filter by:
             <table>
+                <tbody>
                 <tr><td>Condition</td> <td><select><option>melanoma</option></select></td></tr>
                 <tr><td>Treatment</td> <td><select><option>miractrb</option></select></td></tr>
                 <tr><td>Response</td> <td><input type="checkbox" checked/> yes &nbsp; <input type="checkbox" checked/> no</td></tr>
                 <tr><td>Days from treatment</td> <td><input type="checkbox" checked/> 0 &nbsp; <input type="checkbox" checked/> 7 &nbsp;  <input type="checkbox" checked/> 14</td></tr>
                 <tr><td>Sample types</td> <td><input type="checkbox" checked/> PBMC &nbsp; </td></tr>
                 <tr><td>Projects</td> <td><input type="checkbox" checked/> 1 &nbsp; </td></tr>
+                </tbody>
             </table>
-        </div>
-        {['yes', 'no'].map(resp => (
-            <div className="graphrow">
-                <h3 style={{writingMode: 'sideways-lr', textAlign: 'center'}}>{resp == 'no' ? 'Non-' : ''}Responders</h3>
+        </div> */}
+        {/* {['yes', 'no'].map(resp => (<div> */}
+            {/* <h3 >{resp == 'no' ? 'Non-' : ''}Responders</h3> */}
+            { /*style={{writingMode: 'sideways-lr', textAlign: 'center'}} */ }
+            {/* {JSON.stringify(data)} */}
+            <ChartRow minCardWidth="350px" cardHeight="450px">
                 {[0, 7, 14].map(tfts => {
-                    const filteredData = data.filter(d => (d.response == resp && d.time_from_treatment_start == tfts));
-                    return (
-                    <div>
-                        <Plot
-                            data={[{
-                                type: 'box',
-                                name: `${tfts} days since treatment began`,
-                                q1: filteredData.map(d => d.q1),
-                                median: filteredData.map(d => d.median),
-                                q3: filteredData.map(d => d.q3),
-                                lowerfence: filteredData.map(d => d.adj_min),
-                                upperfence: filteredData.map(d => d.adj_max),
-                                x: filteredData.map(d => d.cell_type),
-                                // y: filteredData.map(d => d.outliers).flat(),
-                                // boxpoints: 'outliers',
 
-                            } as any]}
-                            layout={{
-                                title: { text:`${tfts} days since treatment began` },
-                                yaxis: { title: {text: 'Relative Frequency'} },
-                                showlegend: false
-                            }}
-                            style={{ width: '100%', height: '500px' }}
-                        />
-                    </div>
+                    return (data &&
+                        <ReactECharts
+                            option={{...getBoxPlotOptions(data.filter(box => box.time_from_treatment_start == tfts)),
+                                    title: {text: `Cell Frequency ${tfts} days from Treatment`, left: 'center'}
+                            }} notMerge={true} style={{height: '500px', width: '100%'}}/>
+
                 )})}
-            </div>
-        ))}
+            </ChartRow>
+        {/* </div>))} */}
         </div>
     </>);
 };

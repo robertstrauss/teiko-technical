@@ -4,11 +4,11 @@ import React from "react";
 interface ResponsiveGridProps {
     children: React.ReactElement | React.ReactElement[];
     minCardWidth?: string; // e.g., '350px' or '400px'
-//   rowGap?: string;       // e.g., '24px'
-//   cardHeight?: string;   // e.g., '350px'
+    rowGap?: string;       // e.g., '24px'
+    cardHeight?: string;   // e.g., '350px'
 }
 
-const ChartRow = ({children, minCardWidth='350px'}: ResponsiveGridProps) => {
+const ChartRow = ({children, minCardWidth='350px', rowGap='24px', cardHeight='350px'}: ResponsiveGridProps) => {
     // automatically resize canvas-based charts in a flex row.
 
     const chartsRef = useRef<any[]>([]);
@@ -66,7 +66,7 @@ const ChartRow = ({children, minCardWidth='350px'}: ResponsiveGridProps) => {
                     if (el) chartsRef.current[index] = el;
                 },
                 // Inject uniform styling overrides so the chart fits perfectly inside our card
-                style: { width: '100%' }
+                style: { width: '100%', height: cardHeight}
             })}
           </div>
         );

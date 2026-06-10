@@ -104,20 +104,17 @@ const SubsetAnalysis = () => {
             //     }
             // });
             [p,s,r].forEach(n => nodesMap[n] = {name: n, itemStyle: {color: COLOR_DEFAULT}});
-            nodesMap[p].displayName = p;
-            nodesMap[s].displayName = 'pee';//row.sex;
-            nodesMap[r].displayName = row.response;
             nodesMap[r].itemStyle.color = (row.response == 'yes' ? COLOR_RESPONDER : COLOR_NON_RESPONDER);
 
-            // Flow 0: Total -> Project
+            // Flow 0: Total split between Projects
             const link0 = `all matches-${p}`
             linksMap[link0] = (linksMap[link0] || 0) + row.n_samples;
 
-            // Flow 1: Project -> Sex
+            // Flow 1: Projects split over Sex
             const link1 = `${p}-${s}`;
             linksMap[link1] = (linksMap[link1] || 0) + row.n_samples;
 
-            // Flow 2: Sex -> Response
+            // Flow 2: Sex split by Response
             const link2 = `${s}-${r}`;
             linksMap[link2] = (linksMap[link2] || 0) + row.n_samples;
         });
@@ -126,10 +123,10 @@ const SubsetAnalysis = () => {
         const sankeyLinks = Object.entries(linksMap).map(([key, value]) => {
             const [source, target] = key.split('-');
             return { source, target, value };
-        })//.sort((item1, item2) => item1. > item2.target ? 1 : -1);
+        });
 
         setSKO({
-            title: { text: 'Patient Responder Status Based on Sex and Project', left: 'center', top: 'top' },
+            title: { text: 'Patient Responder Status, Sex, and Project', left: 'center', top: 'top' },
             tooltip: { trigger: 'item', triggerOn: 'mousemove' },
             series: [
             {
