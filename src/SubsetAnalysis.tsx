@@ -68,6 +68,10 @@ const SubsetAnalysis = () => {
             {
                 type: 'pie',
                 radius: '60%',
+                label: {
+                    position: 'inside',
+                    formatter: '{b}\n{c}\n{d}%'
+                },
                 emphasis: {
                     itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0, 0, 0, 0.5)' }
                 }
