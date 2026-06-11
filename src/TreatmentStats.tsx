@@ -83,18 +83,26 @@ const TreatmentStats = () => {
                 // Map it to cell category label
                 const categoryName = cellTypes[xValue] || 'Unknown';
 
-                return `
-                    <div style="font-weight: bold; padding-bottom: 4px; border-bottom: 1px solid #ccc; margin-bottom: 4px;">
-                        ${categoryName}
-                    </div>
-                    Max: ${params.value[5]} <br/>
-                    Q3: ${params.value[4]} <br/>
-                    Median: ${params.value[3]} <br/>
-                    Q1: ${params.value[2]} <br/>
-                    Min: ${params.value[1]}
-                `;
-                } 
-            },
+                if (params.value.length == 2) {
+                    return `
+                        <div style="font-weight: bold; padding-bottom: 4px; border-bottom: 1px solid #ccc; margin-bottom: 4px;">
+                            ${categoryName}
+                        </div>
+                        value: ${params.value[1]}
+                    `;
+                } else {
+                    return `
+                        <div style="font-weight: bold; padding-bottom: 4px; border-bottom: 1px solid #ccc; margin-bottom: 4px;">
+                            ${categoryName}
+                        </div>
+                        Max: ${params.value[5]} <br/>
+                        Q3: ${params.value[4]} <br/>
+                        Median: ${params.value[3]} <br/>
+                        Q1: ${params.value[2]} <br/>
+                        Min: ${params.value[1]}
+                    `;
+                }
+            }},
             legend: { data: ['Responder', 'Non-Responder'], bottom: '0%' },
             // Define shared visual grids so scatter dots line up over the shifted boxes
             grid: { left: '10%', right: '10%', bottom: '25%' },
