@@ -75,8 +75,26 @@ const TreatmentStats = () => {
         const offset = 0.23;
 
         return {
-            title: { text: 'Cell Population Frequency by Phenotype', left: 'center' },
-            tooltip: { trigger: 'item', axisPointer: { type: 'shadow' } },
+            title: { text: 'Cell Population Frequency by Phenotype', left: 'center'},
+            tooltip: { trigger: 'item', axisPointer: { type: 'shadow' },  formatter: (params: any) => {
+                // Extract the numerical X-coordinate from the data array
+                const xValue = Math.round(params.value[0]);
+                
+                // Map it to cell category label
+                const categoryName = cellTypes[xValue] || 'Unknown';
+
+                return `
+                    <div style="font-weight: bold; padding-bottom: 4px; border-bottom: 1px solid #ccc; margin-bottom: 4px;">
+                        ${categoryName}
+                    </div>
+                    Max: ${params.value[5]} <br/>
+                    Q3: ${params.value[4]} <br/>
+                    Median: ${params.value[3]} <br/>
+                    Q1: ${params.value[2]} <br/>
+                    Min: ${params.value[1]}
+                `;
+                } 
+            },
             legend: { data: ['Responder', 'Non-Responder'], bottom: '0%' },
             // Define shared visual grids so scatter dots line up over the shifted boxes
             grid: { left: '10%', right: '10%', bottom: '25%' },
@@ -121,15 +139,29 @@ const TreatmentStats = () => {
                 {
                     name: 'Responder',
                     type: 'scatter',
-                    data: responders.map(box => [cellXValues[box.cell_type]-offset, box.outliers.map(v => v.toFixed(3))]),
+                    data: responders.flatMap(box => {
+                        const xCoord = cellXValues[box.cell_type] - offset;
+                        return box.outliers.map(v => [
+                            xCoord, 
+                            parseFloat(v.toFixed(3))
+                        ]);
+                    }),
                     marker: 'circle',
+                    symbolSize: 5,
                     itemStyle: { color: '#16a34a' }
                 },
                 {
                     name: 'Non-Responder',
                     type: 'scatter',
-                    data: nonresponders.map(box => [cellXValues[box.cell_type]+offset, box.outliers.map(v => v.toFixed(3))]),
+                    data: nonresponders.flatMap(box => {
+                        const xCoord = cellXValues[box.cell_type] + offset;
+                        return box.outliers.map(v => [
+                            xCoord, 
+                            parseFloat(v.toFixed(3))
+                        ]);
+                    }),
                     marker: 'circle',
+                    symbolSize: 5,
                     itemStyle: { color: '#ca8a04' }
                 }
             ]
