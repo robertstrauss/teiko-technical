@@ -49,13 +49,14 @@ def init_db():
 
     # load data from CSV
     c.execute('SELECT COUNT(*) FROM samples')
-    if c.fetchone()[0] > 0:
+    if c.fetchone()[0] > 0: # check if data is already loaded (samples db not empty)
         print("Data already loaded, skipping CSV import.")
         conn.close()
         print("EXISTING DATABASE FOUND")
         return
 
-    print("INITIALIZING DATABASE...")
+    # load data in from csv
+    print("POPULATING DATABASE...")
     
     with open('cell-count.csv', 'r') as file:
         csv_reader = csv.DictReader(file)
@@ -87,7 +88,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-    print("DONE")
+    print("DATABASE INITIALIZED.")
 
 
 
@@ -106,101 +107,144 @@ app.add_middleware(
 
 
 # define allowed columns for querying to prevent SQL injection and ensure only valid queries are made
-allowed_cols_samples = ['sample_id', 'project_id', 'subject_id', 'time_from_treatment_start', 'sample_type']
-allowed_cols_subjects = ['subject_id', 'condition', 'age', 'sex', 'treatment', 'response']
-allowed_cols_cell_counts = ['sample_id', 'cell_type', 'count']
+COLUMN_REGISTRY = {
+    'sample_id': 'samples.sample_id',
+    'project_id': 'samples.project_id',
+    'subject_id': 'samples.subject_id',
+    'time_from_treatment_start': 'samples.time_from_treatment_start',
+    'sample_type': 'samples.sample_type',
+    'n_samples': 'COUNT(samples.sample_id) AS n_samples',
 
-def table_prefix(colname):
-    if colname in allowed_cols_cell_counts: return 'c'
-    elif colname in allowed_cols_subjects: return 'p'
-    elif colname in allowed_cols_samples: return 's'
+    # 'subject_id': 'subjects.subject_id',
+    'condition': 'subjects.condition',
+    'age': 'subjects.age',
+    'sex': 'subjects.sex',
+    'treatment': 'subjects.treatment',
+    'response': 'subjects.response',
+
+    # 'sample_id': 'cell_counts.sample_id',
+    'cell_type': 'cell_counts.cell_type',
+    'count': 'cell_counts.count',
+    'total': 'SUM(cell_counts.count) OVER (PARTITION BY cell_counts.sample_id) AS total',
+}
+
+
+
+
+@app.get('/possible_values/')
+def api_possible_values(col: str, constraint = {}, limit=100, offset=0):
+    offset = int(offset)
+    limit = min(int(limit), 1000)
+    return get_possible_values(col, constraint, limit, offset)
+
+def get_possible_values(col: str, constraint = {}, limit=None, offset=0):
+    if not col in COLUMN_REGISTRY: return []
+
+    params = [*constraint.values()]
+    if limit is not None:
+        params = params + [offset, limit]
+
+    conn = sqlite3.connect(DB)
+    df = pd.read_sql_query(f"""
+            SELECT {COLUMN_REGISTRY[col]}
+            FROM samples
+            JOIN subjects ON subjects.subject_id = samples.subject_id
+            JOIN cell_counts ON cell_counts.sample_id = samples.sample_id
+            {f"WHERE {" AND ".join([f"{COLUMN_REGISTRY[col]} = ?" for col in constraint if col in COLUMN_REGISTRY])}" if len(constraint) > 0 else ""}
+            GROUP BY {COLUMN_REGISTRY[col]}
+            {"LIMIT ? OFFSET ?" if limit is not None else ""}
+        """, conn, params=params)
+    conn.close()
+    
+    return df[col]
+
 
 # Most abstract injection-safe query, access to fields from all tables
 @app.get(f"/query/")
-def query(*fields, constraint, sort='sample_id', offset: int = 0, limit: int = 100):
-    if limit > 1000:
-        limit = 1000 # cap n to prevent overload, can implement pagination on frontend if more data is needed
+def api_query(*fields, constraint, sort=['sample_id'], offset: int = 0, limit: int = 100):
+    limit = min(limit, 1000) # cap n rows returned to prevent overload, can implement pagination on frontend if more data is needed
+    # return in list format for minimal redundancy, minimize network footprint
+    return query(*fields, constraint=constraint, sort=sort, offset=offset, limit=limit).to_dict(format='list')
+
+def query(*fields, constraint, sort=['sample_id'], join_cell_counts = True, offset: int = 0, limit = None):
+    
+    # sanitize arbitrary column names by taking only values specified in COLUMN_REGISTRY
 
     # build SQL query based on provided query parameters, checking field is allowed to prevent injection and ensure valid queries
     conn = sqlite3.connect(DB)
-    params = (*fields,
-                *sum(zip(
-                    list([table_prefix(k)+'.'+k for k in constraint.keys()]),
-                    constraint.values()),
-                    ()), # zip then flatten, for pair wise inserting (... ? = ? AND ? = ? ...) <=> [..., table.col, value, table.col2, value2, ...]
-                sort,
-                limit,
-                offset)
-    df = pd.read_sql_query(f"""SELECT {", ".join(["?"]*len(fields))} FROM samples s
-                JOIN subjects p ON p.subject_id = s.subject_id
-                JOIN cell_counts c ON c.sample_id = s.sample_id
-                WHERE {" AND ".join(["? = ?"]*len(constraint))}
-                ORDER BY ?
-                LIMIT ?
-                OFFSET ?
+    params = [*constraint.values(),]
+    if limit is not None:
+        params = params + [limit, offset]
+    
+    sortpriority = [COLUMN_REGISTRY[col] for col in sort if col in COLUMN_REGISTRY]
+    if len(sortpriority) < 1:
+        sortpriority = ['sample_id']
+    df = pd.read_sql_query(f"""SELECT {", ".join([COLUMN_REGISTRY[col] for col in fields if col in COLUMN_REGISTRY])} FROM samples
+                JOIN subjects ON subjects.subject_id = samples.subject_id
+                {"JOIN cell_counts ON cell_counts.sample_id = samples.sample_id" if join_cell_counts else ""}
+                WHERE {" AND ".join([f"{COLUMN_REGISTRY[col]} = ?" for col in constraint.keys() if col in COLUMN_REGISTRY])}
+                ORDER BY {", ".join(sortpriority)}
+                {"LIMIT ? OFFSET ?" if limit is not None else ""}
         """, conn, params=params)
 
     conn.close()
 
-    return df.to_dict(orient='list')
+    return df
 
 
 
-@app.get('/entry_values/')
-def get_entry_values(col: str):
-    conn = sqlite3.connect(DB)
-    df = pd.read_sql_query("""
-            SELECT ?
-            FROM samples
-            GROUP BY ?
-        """, conn, params=(col, col))
-    conn.close()
-    
-    return df.to_dict(orient='list')
+
 
 @app.get("/analysis/frequency_overview/")
-def get_overview(start_sample_id: int, n_samples: int):
-    if (n_samples < 0 or n_samples > 250):
-        n_samples = 250 # Limit max amount sent over in one request, don't overload connection
+def api_get_summary(start_sample_id, n_samples, offset = '0', limit = '1000'):
+    offset = int(offset)
+    limit = min(int(limit), 1000)
+    return get_overview_summary.to_dict(format='list', offset=offset, limit=limit)
+
+def get_overview_summary(offset = 0, limit = None):
+    params = []
+    if limit is not None:
+        params = params + [limit, offset]
 
     # get the requested info: sample, cell population, count, and total. Also process into relative frequency
+    # single source of truth: only compute cell count totals on query
     conn = sqlite3.connect(DB)
-    df = pd.read_sql_query("""
+    df = pd.read_sql_query(f"""
             WITH counts_and_total AS (
                 SELECT
                     sample_id,
+                    SUM(count) OVER (PARTITION BY sample_id) AS total,
                     cell_type,
-                    count,
-                    SUM(count) OVER (PARTITION BY sample_id) AS total
-                FROM cell_counts WHERE sample_id >= ? AND sample_id < ? + ?
+                    count
+                FROM cell_counts
+                {"LIMIT ? OFFSET ?" if limit is not None else ""}
             )
             SELECT
                 sample_id,
+                total,
                 cell_type,
                 count,
-                total,
                 count * 1.0 / total AS relative_freq
             FROM counts_and_total
-        """, conn, params=(start_sample_id, start_sample_id, n_samples))
+        """, conn, params=params)
     conn.close()
-    # single source of truth: only compute cell count totals on query
 
-    return df.to_dict(orient='list') # serialize as dict of lists not list of dicts, to reduce size during push over the network
+    return df
     
 
 
 @app.get("/analysis/treatment_statistics/")
-def get_statistics(condition, treatment, sample_type):
+def api_treatment_stats(condition, treatment, sample_type):
+    return get_treatment_statistics(condition=condition, treatment=treatment, sample_type=sample_type).to_dict(format='list')
+
+def get_treatment_statistics(condition, treatment, sample_type):
     conn = sqlite3.connect(DB)
 
     # get the cell populations and response data relevant to samples done on patients with the given condition and treatment.
     # patient and cell count data is seperated out for DB stability, need to use JOIN to look get corresponding records.
     df = pd.read_sql_query("""            
-        WITH condition_cell_counts AS (SELECT """
-                # p.subject_id,
-                # p.condition,
-                # s.sample_id,
-                + """s.time_from_treatment_start,
+        WITH condition_cell_counts AS (SELECT
+                s.time_from_treatment_start,
                 p.response,
                 c.cell_type,
                 c.count,
@@ -212,11 +256,8 @@ def get_statistics(condition, treatment, sample_type):
                 p.condition = ?
                 AND p.treatment = ?
                 AND s.sample_type = ?
-        ) SELECT """
-            # subject_id,
-            # conditiion,
-            # sample_id,
-            +"""time_from_treatment_start,
+        ) SELECT
+            time_from_treatment_start,
             response,
             cell_type,
             count * 1.0 / total AS relative_freq
@@ -261,121 +302,66 @@ def get_statistics(condition, treatment, sample_type):
     # prevent NaNs
     final_data['outliers'] = final_data['outliers'].apply(lambda d: d if isinstance(d, list) else [])
 
-    return final_data.to_dict(orient='list')
-
+    return final_data
 
 
 
 @app.get("/analysis/subset/")
-def get_subset(condition: str, treatment: str, sample_type: str, time_from_treatment_start: int):
+def api_get_subset_info(condition: str, treatment: str, sample_type: str, time_from_treatment_start: int):
+    # don't need limit or offset, only returns the total samples in a few possible subsets, very small data.
+    return get_subset_info(condition, treatment, sample_type, time_from_treatment_start).to_dict(format='list')
+
+def get_subset_info(condition: str, treatment: str, sample_type: str, time_from_treatment_start: int):
     partitions = ['sex', 'response', 'project_id'];
     partitionquery = []
     for field in partitions:
-        if field in allowed_cols_samples:
-            partitionquery.append(f"s.{field}")
-        elif field in allowed_cols_subjects:
-            partitionquery.append(f"p.{field}")
-        elif field in allowed_cols_cell_counts:
-            partitionquery.append(f"c.{field}")
+        partitionquery.append(COLUMN_REGISTRY[field])
     pq = ', '.join(partitionquery)
     # f-strings safe from here, since we explicitly check it is one of limited options.
 
     conn = sqlite3.connect(DB)
     df = pd.read_sql_query(f"""
         SELECT
-            COUNT(s.sample_id) AS n_samples,
+            COUNT(samples.sample_id) AS n_samples,
             {pq}
-        FROM samples s
-        JOIN subjects p ON s.subject_id = p.subject_id
-        JOIN cell_counts c ON c.sample_id = s.sample_id
-        WHERE p.condition = ? 
-        AND s.sample_type = ? 
-        AND s.time_from_treatment_start = ? 
-        AND p.treatment = ?
+        FROM samples
+        JOIN subjects ON samples.subject_id = subjects.subject_id
+        JOIN cell_counts ON cell_counts.sample_id = samples.sample_id
+        WHERE subjects.condition = ? 
+        AND samples.sample_type = ? 
+        AND samples.time_from_treatment_start = ? 
+        AND subjects.treatment = ?
         GROUP BY {pq};
     """, conn, params=(condition, sample_type, time_from_treatment_start, treatment))
     conn.close()
     
-    return df.to_dict(orient='list')
+    return df
 
 
+def boxplot(treatment_data):
+    fig = plt.figure(figsize=(10, 6))
 
+    # sns.boxplot automatically handles the grouping and coloring
+    sns.boxplot(
+        data=treatment_data, 
+        x='cell_type', 
+        y='count', 
+        hue='response', # This is the magic argument that creates side-by-side boxes
+        palette={'yes': '#bbf7d0', 'no': '#fef08a'}, # Match your ECharts colors
+        linewidth=2,
+        fliersize=5 # Size of the outlier dots
+    )
 
-def box_plot(stats, title, save_path):
-    # Extract unique categories (cell types) and calculate X positions
-    cell_types = sorted(list(set(stats['cell_type'])))
-    x_positions = np.arange(len(cell_types))
-    
-    width = 0.35
-    offset = width / 2
+    # Formatting
+    plt.ylabel('Relative Frequency (Percent)')
+    plt.xlabel('')
+    plt.xticks(rotation=45)
+    plt.legend(title='Response')
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
 
-    # Helper function to format data dictionaries for matplotlib's bxp engine
-    def format_bxp_data(response):
-        boxdata = []
-        cohort_indices = np.where(np.equal(stats['response'], response))[0]
-        
-        for idx in cohort_indices:
-            boxdata.append({
-                'label': stats['cell_type'][idx],
-                'med': stats['median'][idx],
-                'q1': stats['q1'][idx],
-                'q3': stats['q3'][idx],
-                'whislo': stats['adj_min'][idx],
-                'whishi': stats['adj_max'][idx],
-                'fliers': stats['outliers'][idx] # bxp automatically plots these as scatter dots
-            })
-        return boxdata
+    plt.tight_layout()
 
-    fig, ax = plt.subplots(figsize=(10, 6))
-
-    # 5. Draw Responders (Shifted Left)
-    ax.bxp(format_bxp_data(response='yes'), 
-           positions=x_positions - offset, 
-           widths=width,
-           patch_artist=True, 
-           boxprops=dict(facecolor='#bbf7d0', edgecolor='#22c55e', linewidth=2),
-           medianprops=dict(color='#22c55e'),
-           flierprops=dict(marker='o', markerfacecolor='#16a34a', markeredgecolor='none'))
-
-    # 6. Draw Non-Responders (Shifted Right)
-    ax.bxp(format_bxp_data(response='no'), 
-           positions=x_positions + offset, 
-           widths=width,
-           patch_artist=True, 
-           boxprops=dict(facecolor='#fef08a', edgecolor='#eab308', linewidth=2),
-           medianprops=dict(color='#eab308'),
-           flierprops=dict(marker='o', markerfacecolor='#ca8a04', markeredgecolor='none'))
-
-    # 7. Aesthetics & Formatting
-    ax.set_title(title)
-    ax.set_ylabel('Relative Frequency')
-    
-    # Fix X-axis ticks to center between the grouped boxes
-    ax.set_xticks(x_positions)
-    ax.set_xticklabels(cell_types, rotation=45, ha='right')
-    
-    # Hide vertical grid lines, keep horizontal
-    ax.grid(axis='y', linestyle='--', alpha=0.7)
-    ax.grid(axis='x', visible=False)
-
-    # 8. Legend
-    legend_elements = [
-        Patch(facecolor='#bbf7d0', edgecolor='#22c55e', linewidth=2, label='Responder'),
-        Patch(facecolor='#fef08a', edgecolor='#eab308', linewidth=2, label='Non-Responder')
-    ]
-    ax.legend(handles=legend_elements, loc='lower right')
-
-    plt.tight_layout() # Ensures rotated labels aren't cut off
-
-    # Either save for the CLI pipeline or show for local debugging
-    if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Plot saved to {save_path}")
-    else:
-        plt.show()
-    
-    plt.close()
-
+    return fig
 
 if __name__ == "__main__":
     init_db() # init schema in case it doesn't exist, and load data from CSV
@@ -386,73 +372,89 @@ if __name__ == "__main__":
     else:
         import matplotlib.pyplot as plt
         from matplotlib.patches import Patch
+        import seaborn as sns
         import numpy as np
 
         outdir = 'output/'
         os.makedirs(outdir, exist_ok=True)
 
-        print("Part 2...")
         # PART 2: Display Table Overview
         # TODO: save entire table to file?
-        overview = get_overview(0, 100)
-        summarytablepath = outdir + '/part2_summary_table.txt'
-        with open(summarytablepath, 'w') as outfile:
-            outfile.write('\t'.join(overview.keys()) + '\n')
-            for i in range(len(overview['cell_type'])):
-                outfile.write('\t'.join([str(overview[col][i]) for col in overview.keys()]) + '\n')
-        print("successfully wrote summary table to " + summarytablepath)
-        print("Part 2 successful")
+        overview = get_overview_summary(0, 1000)
+        overview[['relative_freq']] = overview[['relative_freq']] * 100 # convert to percentage
+        
+        summarytablepath = outdir + '/part2_summary_table.csv'
 
-        print("Part 3...")
+        # write the summary table out to disk as csv
+        overview.rename(columns={ # rename to match format requested
+            'relative_freq': 'percentage',
+            'total': 'total_count',
+            'sample_id': 'sample',
+            'cell_type': 'population',
+            # reorder to match desired format as well
+            }).loc[:, ['sample', 'total_count', 'population', 'count', 'percentage']
+            ].to_csv(summarytablepath)
+        
+        print("[PART 2] successfully wrote summary table to " + summarytablepath)
+
+
+
         # PART 3: Statistical Analysis of cell frequencies
-        stats = get_statistics('melanoma', 'miraclib', 'PBMC')
-
-        boxplotpath = outdir + '/part3_boxplot.pdf'
-        # plot the baseline responder vs non-responder cell population distributions
-        baseline_indices = np.where(np.equal(stats['time_from_treatment_start'], 0))[0]
-        baseline_stats = {
-            key: [stats[key][i] for i in baseline_indices] for key in stats
-        }
-        box_plot(baseline_stats, "Cell Type Frequencies at Baseline", boxplotpath)
-        # TODO: report significant differences?
-        print("Part 3 successful")
-
-
-        print("Part 4...")
+        # stats = get_statistics('melanoma', 'miraclib', 'PBMC')
         constraint = {'condition':'melanoma', 
                       'treatment':'miraclib',
                       'sample_type':'PBMC',
                       'time_from_treatment_start': 0}
-        subset_samples = query('sample_id', constraint=constraint)
-        subsetsamplepath = outdir + '/part4_subset_sample_ids.txt'
-        with open(subsetsamplepath, 'w') as outfile:
-            outfile.write('\n'.join(subset_samples))
-        print("successfully wrote summary table to " + subsetsamplepath)
+        treatment_data = query('sample_id', 'response', 'cell_type', 'count', 'total', constraint=constraint)
+        treatment_data['percentage'] = treatment_data['count'] / treatment_data['total'] * 100
+        # cell_type_pops = treatment_data.pivot(index='sample_id', columns='cell_type', values=['percentage', 'response'])
+        # cell_type_pops['percentage'] = cell_type_pops['count'] / cell_type_pops['total'] * 100
+        # print(cell_type_pops)
+        # boxplot = cell_type_pops.boxplot()
+        # boxplot = treatment_data.boxplot(column='count', by=['cell_type', 'response'], rot=45)
+        boxplotfig = boxplot(treatment_data)
+        plt.suptitle('')
+        plt.title(f'Cell Frequency in {constraint['condition']} Patients Treated with {constraint['treatment']}')
 
-        subset_splits = get_subset(**constraint)
-        def getTotal(filter): # helper to get totals of the different slices of the samples
-            total = 0
-            def matches(i):
-                for key in filter.keys():
-                    if subset_splits[key][i] != filter[key]: return False
-                return True
+        # plot the baseline responder vs non-responder cell population distributions
+        boxplotpath = outdir + '/part3_boxplot.pdf'
+        boxplotfig.savefig(boxplotpath, bbox_inches='tight')
+        print('[PART 3] successfully saved cell population boxplots to ', boxplotpath)
+        # TODO: report significant differences?
 
-            for i in range(len(subset_splits['n_samples'])):
-                if matches(i):
-                    total += subset_splits['n_samples'][i]
-            return total
-        
 
-        subsettablepath = outdir + '/part4_subset_table.txt'
-        with open(subsettablepath, 'w') as outfile:
-            for project_id in sorted(list(set(subset_splits['project_id']))):
-                outfile.write('Project: ' + project_id + '\n')
-                outfile.write(f'''Num. Samples:\tResponse\tNo Response\tTotal
-Male\t{getTotal({'project_id': project_id, 'sex': 'M', 'response': 'yes'})}\t{getTotal({'project_id': project_id, 'sex': 'M', 'response': 'no'})}\t{getTotal({'project_id': project_id, 'sex': 'M'})}
-Female\t{getTotal({'project_id': project_id, 'sex': 'F', 'response': 'yes'})}\t{getTotal({'project_id': project_id, 'sex': 'F', 'response': 'no'})}\t{getTotal({'project_id': project_id, 'sex': 'F'})}
-Total\t{getTotal({'project_id': project_id, 'response': 'yes'})}\t{getTotal({'project_id': project_id, 'response': 'no'})}\t{getTotal({'project_id': project_id})}
-    
-''')
-        print('successfully wrote to', subsettablepath)
+
         # PART 4: Subsetting the dataset and analyzing breakdown
-        print("Part 4 successful")
+        subset_samples = query('sample_id', 'project_id', 'response', 'sex', constraint=constraint, join_cell_counts=False)
+        
+        subsetsamplepath = outdir + f'/part4_melanoma_miraclib_PBMC_baseline_sample_info.csv'
+        
+        subset_samples.to_csv(subsetsamplepath)
+        print("[PART 4] successfully wrote subset sample list to " + subsetsamplepath)
+
+        subset_info = get_subset_info(**constraint)
+
+        subset_breakdown_table_path = outdir + '/part4_subset_info.csv'
+
+        breakdown = pd.DataFrame()
+        
+        # gather the samples split by sex, response, or project_id to see how the total breaks down
+        breakdown = pd.concat([breakdown, subset_info.groupby('sex')[['n_samples']].sum()])
+        breakdown = pd.concat([breakdown, subset_info.groupby('response')[['n_samples']].sum()])
+        breakdown = pd.concat([breakdown, subset_info.groupby('project_id')[['n_samples']].sum()])
+        breakdown['percentage'] = breakdown['n_samples']/subset_info['n_samples'].sum() * 100
+        
+        breakdown = pd.DataFrame(breakdown.__array__(), pd.MultiIndex.from_tuples([
+                ('sex', 'Male'),        
+                ('sex', 'Female'),
+                ('response', 'Resonder'),
+                ('response', 'Non-responder'),
+                ('Project', '1'),
+                ('Project', '3')
+            ], names=["split by", "portion"])).rename(columns={0:'n_samples', 1:'percentage'})
+        
+        breakdown.to_csv(subset_breakdown_table_path)
+        
+        print('[PART 4] successfully wrote project, sex, and responder status sample counts to', subset_breakdown_table_path)
+
+        print('PARTS 1-4 COMPLETE')
