@@ -26,7 +26,7 @@ const ChartRow = ({children, minCardWidth='350px', rowGap='24px', cardHeight='35
         // Loop through our registry and trigger .resize() on every living chart
         chartsRef.current.forEach((chartRef) => {
             if (chartRef) {
-            chartRef.getEchartsInstance().resize();
+              chartRef.getEchartsInstance().resize();
             }
         });
         };
