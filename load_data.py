@@ -105,81 +105,45 @@ app.add_middleware(
 )
 
 
-# # define allowed columns for querying to prevent SQL injection and ensure only valid queries are made
+# define allowed columns for querying to prevent SQL injection and ensure only valid queries are made
 allowed_cols_samples = ['sample_id', 'project_id', 'subject_id', 'time_from_treatment_start', 'sample_type']
 allowed_cols_subjects = ['subject_id', 'condition', 'age', 'sex', 'treatment', 'response']
 allowed_cols_cell_counts = ['sample_id', 'cell_type', 'count']
 
-# # define primary keys for each table to handle pagination and querying
-# primary_key = {
-#     'samples': 'sample_id',
-#     'subjects': 'subject_id',
-#     'cell_counts': 'id'
-# }
+def table_prefix(colname):
+    if colname in allowed_cols_cell_counts: return 'c'
+    elif colname in allowed_cols_subjects: return 'p'
+    elif colname in allowed_cols_samples: return 's'
 
+# Most abstract injection-safe query, access to fields from all tables
+@app.get(f"/query/")
+def query(*fields, constraint, sort='sample_id', offset: int = 0, limit: int = 100):
+    if limit > 1000:
+        limit = 1000 # cap n to prevent overload, can implement pagination on frontend if more data is needed
 
-# for table in ['samples', 'subjects', 'cell_counts']:
-#     if table == 'samples':
-#         allowed_cols = allowed_cols_samples
-#     elif table == 'subjects':
-#         allowed_cols = allowed_cols_subjects
-#     elif table == 'cell_counts':
-#         allowed_cols = allowed_cols_cell_counts
-#     else:
-#         break
+    # build SQL query based on provided query parameters, checking field is allowed to prevent injection and ensure valid queries
+    conn = sqlite3.connect(DB)
+    params = (*fields,
+                *sum(zip(
+                    list([table_prefix(k)+'.'+k for k in constraint.keys()]),
+                    constraint.values()),
+                    ()), # zip then flatten, for pair wise inserting (... ? = ? AND ? = ? ...) <=> [..., table.col, value, table.col2, value2, ...]
+                sort,
+                limit,
+                offset)
+    df = pd.read_sql_query(f"""SELECT {", ".join(["?"]*len(fields))} FROM samples s
+                JOIN subjects p ON p.subject_id = s.subject_id
+                JOIN cell_counts c ON c.sample_id = s.sample_id
+                WHERE {" AND ".join(["? = ?"]*len(constraint))}
+                ORDER BY ?
+                LIMIT ?
+                OFFSET ?
+        """, conn, params=params)
 
-#     @app.get(f"/query/{table}/")
-#     def query(*fields, id_start: int = 0, n: int = 100, **kwargs,):
-#         if n > 1000:
-#             n = 1000 # cap n to prevent overload, can implement pagination on frontend if more data is needed
+    conn.close()
 
-#         # build SQL query based on provided query parameters, checking field is allowed to prevent injection and ensure valid queries
-#         query = f"SELECT {','.join(f for f in fields if f in allowed_cols)} FROM {table}"
-#         conditions = []
-#         params = []
+    return df.to_dict(orient='list')
 
-#         for key, value in kwargs.items():
-#             if key not in allowed_cols or key is primary_key[table]: # handle sample id seperately, to control pagination
-#                 continue # avoid injection or invalid query
-#             conditions.append(f"{key} = ?")
-#             params.append(value)
-        
-#         # return rows in batches, don't overload by sending entire table at once.
-#         conditions.append(f"{primary_key[table]} >= ? AND {primary_key[table]} < ? + ?")
-#         params.extend([id_start, id_start, n])
-
-#         if conditions:
-#             query += " WHERE " + " AND ".join(conditions)
-
-#         conn = sqlite3.connect(DB)
-#         df = pd.read_sql_query(query, conn, params=params)
-#         conn.close()
-
-#         return df.to_dict(orient='list')
-
-#     @app.get(f"/sum/{table}/")
-#     def sum(field: str, **kwargs):
-#         if field not in allowed_cols:
-#             return {"error": f"Invalid field for summation: '{field}'"}
-
-#         query = f"SELECT SUM({field}) as total FROM {table}"
-#         conditions = []
-#         params = []
-
-#         for key, value in kwargs.items():
-#             if key not in allowed_cols:
-#                 continue
-#             conditions.append(f"{key} = ?")
-#             params.append(value)
-
-#         if conditions:
-#             query += " WHERE " + " AND ".join(conditions)
-
-#         conn = sqlite3.connect(DB)
-#         df = pd.read_sql_query(query, conn, params=params)
-#         conn.close()
-
-#         return df.to_dict(orient='list')
 
 
 @app.get('/entry_values/')
@@ -335,6 +299,8 @@ def get_subset(condition: str, treatment: str, sample_type: str, time_from_treat
     return df.to_dict(orient='list')
 
 
+
+
 def box_plot(stats, title, save_path):
     # Extract unique categories (cell types) and calculate X positions
     cell_types = sorted(list(set(stats['cell_type'])))
@@ -367,7 +333,8 @@ def box_plot(stats, title, save_path):
            positions=x_positions - offset, 
            widths=width,
            patch_artist=True, 
-           boxprops=dict(facecolor='#bbf7d0', color='#22c55e', linewidth=2),
+           boxprops=dict(facecolor='#bbf7d0', edgecolor='#22c55e', linewidth=2),
+           medianprops=dict(color='#22c55e'),
            flierprops=dict(marker='o', markerfacecolor='#16a34a', markeredgecolor='none'))
 
     # 6. Draw Non-Responders (Shifted Right)
@@ -375,7 +342,8 @@ def box_plot(stats, title, save_path):
            positions=x_positions + offset, 
            widths=width,
            patch_artist=True, 
-           boxprops=dict(facecolor='#fef08a', color='#eab308', linewidth=2),
+           boxprops=dict(facecolor='#fef08a', edgecolor='#eab308', linewidth=2),
+           medianprops=dict(color='#eab308'),
            flierprops=dict(marker='o', markerfacecolor='#ca8a04', markeredgecolor='none'))
 
     # 7. Aesthetics & Formatting
@@ -451,7 +419,17 @@ if __name__ == "__main__":
 
 
         print("Part 4...")
-        subset_splits = get_subset('melanoma', 'miraclib', 'PBMC', 0)
+        constraint = {'condition':'melanoma', 
+                      'treatment':'miraclib',
+                      'sample_type':'PBMC',
+                      'time_from_treatment_start': 0}
+        subset_samples = query('sample_id', constraint=constraint)
+        subsetsamplepath = outdir + '/part4_subset_sample_ids.txt'
+        with open(subsetsamplepath, 'w') as outfile:
+            outfile.write('\n'.join(subset_samples))
+        print("successfully wrote summary table to " + subsetsamplepath)
+
+        subset_splits = get_subset(**constraint)
         def getTotal(filter): # helper to get totals of the different slices of the samples
             total = 0
             def matches(i):
