@@ -4,10 +4,10 @@ import sqlite3
 import csv
 import pandas as pd
 import re
+import sys, os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
 
 DB = 'cytometry.db'
 getnumber = re.compile(r'\d+') # extract integer from sampleXXXXX entries in the CSV
@@ -335,8 +335,146 @@ def get_subset(condition: str, treatment: str, sample_type: str, time_from_treat
     return df.to_dict(orient='list')
 
 
+def box_plot(stats, title, save_path):
+    # Extract unique categories (cell types) and calculate X positions
+    cell_types = sorted(list(set(stats['cell_type'])))
+    x_positions = np.arange(len(cell_types))
+    
+    width = 0.35
+    offset = width / 2
+
+    # Helper function to format data dictionaries for matplotlib's bxp engine
+    def format_bxp_data(response):
+        boxdata = []
+        cohort_indices = np.where(np.equal(stats['response'], response))[0]
+        
+        for idx in cohort_indices:
+            boxdata.append({
+                'label': stats['cell_type'][idx],
+                'med': stats['median'][idx],
+                'q1': stats['q1'][idx],
+                'q3': stats['q3'][idx],
+                'whislo': stats['adj_min'][idx],
+                'whishi': stats['adj_max'][idx],
+                'fliers': stats['outliers'][idx] # bxp automatically plots these as scatter dots
+            })
+        return boxdata
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # 5. Draw Responders (Shifted Left)
+    ax.bxp(format_bxp_data(response='yes'), 
+           positions=x_positions - offset, 
+           widths=width,
+           patch_artist=True, 
+           boxprops=dict(facecolor='#bbf7d0', color='#22c55e', linewidth=2),
+           flierprops=dict(marker='o', markerfacecolor='#16a34a', markeredgecolor='none'))
+
+    # 6. Draw Non-Responders (Shifted Right)
+    ax.bxp(format_bxp_data(response='no'), 
+           positions=x_positions + offset, 
+           widths=width,
+           patch_artist=True, 
+           boxprops=dict(facecolor='#fef08a', color='#eab308', linewidth=2),
+           flierprops=dict(marker='o', markerfacecolor='#ca8a04', markeredgecolor='none'))
+
+    # 7. Aesthetics & Formatting
+    ax.set_title(title)
+    ax.set_ylabel('Relative Frequency')
+    
+    # Fix X-axis ticks to center between the grouped boxes
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(cell_types, rotation=45, ha='right')
+    
+    # Hide vertical grid lines, keep horizontal
+    ax.grid(axis='y', linestyle='--', alpha=0.7)
+    ax.grid(axis='x', visible=False)
+
+    # 8. Legend
+    legend_elements = [
+        Patch(facecolor='#bbf7d0', edgecolor='#22c55e', linewidth=2, label='Responder'),
+        Patch(facecolor='#fef08a', edgecolor='#eab308', linewidth=2, label='Non-Responder')
+    ]
+    ax.legend(handles=legend_elements, loc='lower right')
+
+    plt.tight_layout() # Ensures rotated labels aren't cut off
+
+    # Either save for the CLI pipeline or show for local debugging
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Plot saved to {save_path}")
+    else:
+        plt.show()
+    
+    plt.close()
+
 
 if __name__ == "__main__":
-    import uvicorn
     init_db() # init schema in case it doesn't exist, and load data from CSV
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+
+    if 'server' in sys.argv:
+        import uvicorn
+        uvicorn.run(app, host="0.0.0.0", port=8000)
+    else:
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Patch
+        import numpy as np
+
+        outdir = 'output/'
+        os.makedirs(outdir, exist_ok=True)
+
+        print("Part 2...")
+        # PART 2: Display Table Overview
+        # TODO: save entire table to file?
+        overview = get_overview(0, 100)
+        summarytablepath = outdir + '/part2_summary_table.txt'
+        with open(summarytablepath, 'w') as outfile:
+            outfile.write('\t'.join(overview.keys()) + '\n')
+            for i in range(len(overview['cell_type'])):
+                outfile.write('\t'.join([str(overview[col][i]) for col in overview.keys()]) + '\n')
+        print("successfully wrote summary table to " + summarytablepath)
+        print("Part 2 successful")
+
+        print("Part 3...")
+        # PART 3: Statistical Analysis of cell frequencies
+        stats = get_statistics('melanoma', 'miraclib', 'PBMC')
+
+        boxplotpath = outdir + '/part3_boxplot.pdf'
+        # plot the baseline responder vs non-responder cell population distributions
+        baseline_indices = np.where(np.equal(stats['time_from_treatment_start'], 0))[0]
+        baseline_stats = {
+            key: [stats[key][i] for i in baseline_indices] for key in stats
+        }
+        box_plot(baseline_stats, "Cell Type Frequencies at Baseline", boxplotpath)
+        # TODO: report significant differences?
+        print("Part 3 successful")
+
+
+        print("Part 4...")
+        subset_splits = get_subset('melanoma', 'miraclib', 'PBMC', 0)
+        def getTotal(filter): # helper to get totals of the different slices of the samples
+            total = 0
+            def matches(i):
+                for key in filter.keys():
+                    if subset_splits[key][i] != filter[key]: return False
+                return True
+
+            for i in range(len(subset_splits['n_samples'])):
+                if matches(i):
+                    total += subset_splits['n_samples'][i]
+            return total
+        
+
+        subsettablepath = outdir + '/part4_subset_table.txt'
+        with open(subsettablepath, 'w') as outfile:
+            for project_id in sorted(list(set(subset_splits['project_id']))):
+                outfile.write('Project: ' + project_id + '\n')
+                outfile.write(f'''Num. Samples:\tResponse\tNo Response\tTotal
+Male\t{getTotal({'project_id': project_id, 'sex': 'M', 'response': 'yes'})}\t{getTotal({'project_id': project_id, 'sex': 'M', 'response': 'no'})}\t{getTotal({'project_id': project_id, 'sex': 'M'})}
+Female\t{getTotal({'project_id': project_id, 'sex': 'F', 'response': 'yes'})}\t{getTotal({'project_id': project_id, 'sex': 'F', 'response': 'no'})}\t{getTotal({'project_id': project_id, 'sex': 'F'})}
+Total\t{getTotal({'project_id': project_id, 'response': 'yes'})}\t{getTotal({'project_id': project_id, 'response': 'no'})}\t{getTotal({'project_id': project_id})}
+    
+''')
+        print('successfully wrote to', subsettablepath)
+        # PART 4: Subsetting the dataset and analyzing breakdown
+        print("Part 4 successful")
