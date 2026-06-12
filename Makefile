@@ -1,7 +1,7 @@
 PYTHON = python3
 NPM = npm
 NVM = ${NVM_DIR}/nvm.sh
-PORT=3000
+PORT=8000
 
 # Setup target, to install dependencies
 setup:

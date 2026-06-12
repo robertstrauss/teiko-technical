@@ -10,11 +10,9 @@
 
 ## Quickstart
 
-REQUIRES: Python 3.11+
+(If building locally, ensure Python >= 3.11, and `$NVM_DIR` points to node version manager dir including `nvm.sh`. CODESPACES: Dependcies handled automatically.)
 
-It is reccomended to use a fresh environment with the latest version of Python 3.
-
-Install Python and React dependencies:
+Install Python and Node dependencies:
 ```sh
 make setup
 ```
@@ -28,7 +26,7 @@ Interactive dashboard:
 ```sh
 make dashboard
 ```
-Navigate to `localhost:8000` in a browser if running locally, or https://`$$CODESPACE_NAME`-`${BACKEND_PORT}`.app.github.devif`on GitHub codespaces.
+Navigate to `localhost:8000` in a browser if running locally, or `https://[CODESPACE_NAME]-8000.app.github.dev`on GitHub codespaces. There should be a prompt to open this automatically. If not, paste the link provided in the terminal or go to your address bar and insert `-8000.app` before `.github.dev`.
 
 
 
