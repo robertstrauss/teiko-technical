@@ -28,7 +28,7 @@ Interactive dashboard:
 ```sh
 make dashboard
 ```
-Navigate to `localhost:3000` in a browser if running locally, or the appropriate address to access port 3000 if on GitHub codespaces.
+Navigate to `localhost:8000` in a browser if running locally, or https://`$$CODESPACE_NAME`-`${BACKEND_PORT}`.app.github.devif`on GitHub codespaces.
 
 
 

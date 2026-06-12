@@ -32,7 +32,7 @@ const SubsetAnalysis = () => {
             setLoading(true);
             setError(null);
             try {
-                const response = await axios.get(`http://localhost:8000/analysis/subset/?condition=${condition}&treatment=${treatment}&sample_type=${sample_type}&time_from_treatment_start=${time_from_treatment_start}`);
+                const response = await axios.get(`/analysis/subset/?condition=${condition}&treatment=${treatment}&sample_type=${sample_type}&time_from_treatment_start=${time_from_treatment_start}`);
                 const rawData = response.data;
                 // unpack list intro records ( {col: [val1, val2, ...]} -> [{col: val1}, {col: val2}, ...] )
                 const transformedData: SubsetData[] = rawData.n_samples.map((_: any, index: number) => (

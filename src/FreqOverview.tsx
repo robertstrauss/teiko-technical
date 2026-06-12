@@ -32,7 +32,7 @@ const FreqOverview = () => {
             setLoading(true);
             setError(null);
             try {
-                const response = await axios.get(`http://localhost:8000/analysis/frequency_overview/?offset=${offset}&limit=${limit}`);
+                const response = await axios.get(`/analysis/frequency_overview/?offset=${offset}&limit=${limit}`);
                 const rawData = response.data;
                 // unpack list into records ( {col: [val1, val2, ...]} -> [{col: val1}, {col: val2}, ...] )
                 const transformedData: FrequencyData[] = rawData.cell_type.map((_: any, index: number) => (
@@ -67,7 +67,7 @@ const FreqOverview = () => {
             setError(null);
             try {
                 for (let ct of cellTypes) {
-                    const response = await axios.get(`http://localhost:8000/analysis/treatment_statistics/?condition=*&treatment=*&sample_type=*`);
+                    const response = await axios.get(`/analysis/treatment_statistics/?condition=*&treatment=*&sample_type=*`);
                     const rawData = response.data;
                     if (rawData && rawData.cell_type) {
                         const transformedData: TreatmentBoxStats[] = rawData.cell_type.map((_: any, index: number) => (
@@ -103,7 +103,7 @@ const FreqOverview = () => {
     //         try {
     //             console.log("CELL TYPES", cellTypes);
     //             for (let ct of cellTypes) {
-    //                 const response = await axios.get(`http://localhost:8000/analysis/column_mean/?col=relative_freq&cell_type=${ct}`);
+    //                 const response = await axios.get(`/analysis/column_mean/?col=relative_freq&cell_type=${ct}`);
     //                 const rawData = response.data;
     //                 if (!isNaN(rawData)) {
     //                     cellMeanFreqs[ct] = rawData;
@@ -134,7 +134,7 @@ const FreqOverview = () => {
         if (cellTypes && cellTypes.length > 0) return;
         (async () => {
             try {
-                const response = await axios.get(`http://localhost:8000/possible_values/?col=cell_type`);
+                const response = await axios.get(`/possible_values/?col=cell_type`);
                 const rawData = response.data;
                 if (rawData && Object.values(rawData) && Object.values(rawData).length > 0) {
                     setCellTypes(Object.values(rawData));

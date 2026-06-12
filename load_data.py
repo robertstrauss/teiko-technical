@@ -8,6 +8,8 @@ import sys, os
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 DB = 'cytometry.db'
 getnumber = re.compile(r'\d+') # extract integer from sampleXXXXX entries in the CSV
@@ -96,14 +98,6 @@ def init_db():
 
 app = FastAPI()
 
-# allow CORS for frontend/backend communication
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:8000", "http://localhost:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 # define allowed columns for querying to prevent SQL injection and ensure only valid queries are made
@@ -237,33 +231,6 @@ def get_overview_summary(sample_offset = 0, sample_limit = None):
 
     return df
     
-# @app.get('/analysis/column_mean')
-# def api_rf_means():
-#     return get_rf_means().to_dict(orient='list')
-
-# def get_rf_means():
-#     # df = query(col, constraint=constraint, join_cell_counts=(any(['cell_counts' in COLUMN_REGISTRY[c] for c in [col, *constraint.keys()]])))
-    
-#     conn = sqlite3.connect(DB)
-#     df = pd.read_sql_query("""            
-#         WITH condition_cell_counts AS (SELECT
-#                 c.cell_type,
-#                 c.count,
-#                 SUM(c.count) OVER (PARTITION BY c.sample_id) AS total
-#             FROM subjects p
-#             JOIN samples s ON p.subject_id = s.subject_id
-#             JOIN cell_counts c ON s.sample_id = c.sample_id
-#         ) SELECT
-#             cell_type,
-#             count * 1.0 / total AS relative_freq
-#         FROM condition_cell_counts
-#         GROUP BY cell_type
-#         """, conn)
-#     conn.close()
-
-#     wide = 
-
-#     return (float(df.mean()) if len(df) > 0 else 0)
 
 @app.get("/analysis/treatment_statistics/")
 def api_treatment_stats(condition='*', treatment='*', sample_type='*'):
@@ -407,6 +374,23 @@ if __name__ == "__main__":
 
     if 'server' in sys.argv:
         import uvicorn
+
+        # allow CORS for frontend/backend communication (development)
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+        app.mount("/static", StaticFiles(directory="build/static"), name="static")
+
+        # Catch-all route to serve the React index.html for the main UI
+        @app.get("/{catchall:path}")
+        def serve_react_app(catchall: str):
+            return FileResponse("build/index.html")
+            
         uvicorn.run(app, host="0.0.0.0", port=8000)
     else:
         import matplotlib.pyplot as plt

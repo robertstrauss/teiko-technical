@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, ReactEventHandler } from "react";
+import { useEffect, useState } from "react";
 import axios from "axios";
 // import Plot from 'react-plotly.js';
 import ChartRow from "./ChartRow";
@@ -181,7 +181,7 @@ const TreatmentStats = () => {
             setLoading(true);
             setError(null);
             try {
-                const response = await axios.get(`http://localhost:8000/analysis/treatment_statistics/?condition=${condition}&treatment=${treatment}&sample_type=${sample_type}`);
+                const response = await axios.get(`/analysis/treatment_statistics/?condition=${condition}&treatment=${treatment}&sample_type=${sample_type}`);
                 const rawData = response.data;
                 // unpack list into records
                 const transformedData: TreatmentBoxStats[] = rawData.cell_type.map((_: any, index: number) => (
@@ -216,10 +216,10 @@ const TreatmentStats = () => {
             setLoading(true);
             setError(null);
             try {
-                const cresponse = await axios.get(`http://localhost:8000/possible_values/?col=condition`);
+                const cresponse = await axios.get(`/possible_values/?col=condition`);
                 setConditions(Object.values(cresponse.data));
 
-                const tresponse = await axios.get(`http://localhost:8000/possible_values/?col=treatment`);
+                const tresponse = await axios.get(`/possible_values/?col=treatment`);
                 setTreatments(Object.values(tresponse.data));
             } catch (err) {
                 if (axios.isAxiosError(err)) {
