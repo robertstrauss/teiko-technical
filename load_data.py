@@ -6,7 +6,7 @@ import pandas as pd
 import re
 import sys, os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 DB = 'cytometry.db'
@@ -126,6 +126,7 @@ COLUMN_REGISTRY = {
     'cell_type': 'cell_counts.cell_type',
     'count': 'cell_counts.count',
     'total': 'SUM(cell_counts.count) OVER (PARTITION BY cell_counts.sample_id) AS total',
+    'relative_freq': 'cell_counts.count / (SUM(cell_counts.count) OVER (PARTITION BY cell_counts.sample_id)) AS relative_freq',
 }
 
 
@@ -142,7 +143,7 @@ def get_possible_values(col: str, constraint = {}, limit=None, offset=0):
 
     params = [*constraint.values()]
     if limit is not None:
-        params = params + [offset, limit]
+        params = params + [limit, offset]
 
     conn = sqlite3.connect(DB)
     df = pd.read_sql_query(f"""
@@ -155,19 +156,24 @@ def get_possible_values(col: str, constraint = {}, limit=None, offset=0):
             {"LIMIT ? OFFSET ?" if limit is not None else ""}
         """, conn, params=params)
     conn.close()
-    
+
     return df[col]
 
 
 # Most abstract injection-safe query, access to fields from all tables
 @app.get(f"/query/")
-def api_query(*fields, constraint, sort=['sample_id'], offset: int = 0, limit: int = 100):
+def api_query(*fields, request: Requeset, sort=['sample_id'], limit: int = 100, offset: int = 0):
+    constraint = dict(request.query_params)
+    constraint.pop('col', None)
+    constraint.pop('sort', None)
+    constraint.pop('limit', None)
+    constraint.pop('offset', None)
+
     limit = min(limit, 1000) # cap n rows returned to prevent overload, can implement pagination on frontend if more data is needed
     # return in list format for minimal redundancy, minimize network footprint
-    return query(*fields, constraint=constraint, sort=sort, offset=offset, limit=limit).to_dict(format='list')
+    return query(*fields, constraint=constraint, sort=sort, limit=limit, offset=offset).to_dict(orient='list')
 
 def query(*fields, constraint, sort=['sample_id'], join_cell_counts = True, offset: int = 0, limit = None):
-    
     # sanitize arbitrary column names by taking only values specified in COLUMN_REGISTRY
 
     # build SQL query based on provided query parameters, checking field is allowed to prevent injection and ensure valid queries
@@ -196,15 +202,15 @@ def query(*fields, constraint, sort=['sample_id'], join_cell_counts = True, offs
 
 
 @app.get("/analysis/frequency_overview/")
-def api_get_summary(start_sample_id, n_samples, offset = '0', limit = '1000'):
+def api_get_summary(offset = '0', limit = '1000'):
     offset = int(offset)
     limit = min(int(limit), 1000)
-    return get_overview_summary.to_dict(format='list', offset=offset, limit=limit)
+    return get_overview_summary(sample_offset=offset, sample_limit=limit).to_dict(orient='list')
 
-def get_overview_summary(offset = 0, limit = None):
-    params = []
-    if limit is not None:
-        params = params + [limit, offset]
+def get_overview_summary(sample_offset = 0, sample_limit = None):
+    params = [sample_offset]
+    if sample_limit is not None:
+        params = params + [sample_limit, sample_offset]
 
     # get the requested info: sample, cell population, count, and total. Also process into relative frequency
     # single source of truth: only compute cell count totals on query
@@ -217,7 +223,7 @@ def get_overview_summary(offset = 0, limit = None):
                     cell_type,
                     count
                 FROM cell_counts
-                {"LIMIT ? OFFSET ?" if limit is not None else ""}
+                WHERE sample_id >= ? {"AND sample_id < ? + ?" if sample_limit is not None else ""}
             )
             SELECT
                 sample_id,
@@ -231,18 +237,54 @@ def get_overview_summary(offset = 0, limit = None):
 
     return df
     
+# @app.get('/analysis/column_mean')
+# def api_rf_means():
+#     return get_rf_means().to_dict(orient='list')
 
+# def get_rf_means():
+#     # df = query(col, constraint=constraint, join_cell_counts=(any(['cell_counts' in COLUMN_REGISTRY[c] for c in [col, *constraint.keys()]])))
+    
+#     conn = sqlite3.connect(DB)
+#     df = pd.read_sql_query("""            
+#         WITH condition_cell_counts AS (SELECT
+#                 c.cell_type,
+#                 c.count,
+#                 SUM(c.count) OVER (PARTITION BY c.sample_id) AS total
+#             FROM subjects p
+#             JOIN samples s ON p.subject_id = s.subject_id
+#             JOIN cell_counts c ON s.sample_id = c.sample_id
+#         ) SELECT
+#             cell_type,
+#             count * 1.0 / total AS relative_freq
+#         FROM condition_cell_counts
+#         GROUP BY cell_type
+#         """, conn)
+#     conn.close()
+
+#     wide = 
+
+#     return (float(df.mean()) if len(df) > 0 else 0)
 
 @app.get("/analysis/treatment_statistics/")
-def api_treatment_stats(condition, treatment, sample_type):
-    return get_treatment_statistics(condition=condition, treatment=treatment, sample_type=sample_type).to_dict(format='list')
+def api_treatment_stats(condition='*', treatment='*', sample_type='*'):
+    return get_treatment_statistics(condition=condition, treatment=treatment, sample_type=sample_type).to_dict(orient='list')
 
 def get_treatment_statistics(condition, treatment, sample_type):
+    paramvals = []
+    constraint = []
+    if condition != '*':
+        paramvals.append(condition)
+        constraint.append('p.condition = ?')
+    if treatment != '*':
+        paramvals.append(treatment)
+        constraint.append('p.treatment = ?')
+    if sample_type != '*':
+        paramvals.append(sample_type)
+        constraint.append('s.sample_type = ?')
     conn = sqlite3.connect(DB)
-
     # get the cell populations and response data relevant to samples done on patients with the given condition and treatment.
     # patient and cell count data is seperated out for DB stability, need to use JOIN to look get corresponding records.
-    df = pd.read_sql_query("""            
+    df = pd.read_sql_query(f"""            
         WITH condition_cell_counts AS (SELECT
                 s.time_from_treatment_start,
                 p.response,
@@ -252,17 +294,14 @@ def get_treatment_statistics(condition, treatment, sample_type):
             FROM subjects p
             JOIN samples s ON p.subject_id = s.subject_id
             JOIN cell_counts c ON s.sample_id = c.sample_id
-            WHERE
-                p.condition = ?
-                AND p.treatment = ?
-                AND s.sample_type = ?
+            {f"WHERE {' AND '.join(constraint)}" if len(constraint) > 0 else ""}
         ) SELECT
             time_from_treatment_start,
             response,
             cell_type,
             count * 1.0 / total AS relative_freq
         FROM condition_cell_counts
-        """, conn, params=(condition, treatment, sample_type))
+        """, conn, params=paramvals)
     conn.close()
     
     # compute min, max, quartiles for box plot
@@ -309,7 +348,7 @@ def get_treatment_statistics(condition, treatment, sample_type):
 @app.get("/analysis/subset/")
 def api_get_subset_info(condition: str, treatment: str, sample_type: str, time_from_treatment_start: int):
     # don't need limit or offset, only returns the total samples in a few possible subsets, very small data.
-    return get_subset_info(condition, treatment, sample_type, time_from_treatment_start).to_dict(format='list')
+    return get_subset_info(condition, treatment, sample_type, time_from_treatment_start).to_dict(orient='list')
 
 def get_subset_info(condition: str, treatment: str, sample_type: str, time_from_treatment_start: int):
     partitions = ['sex', 'response', 'project_id'];
@@ -400,18 +439,12 @@ if __name__ == "__main__":
 
 
         # PART 3: Statistical Analysis of cell frequencies
-        # stats = get_statistics('melanoma', 'miraclib', 'PBMC')
         constraint = {'condition':'melanoma', 
                       'treatment':'miraclib',
                       'sample_type':'PBMC',
                       'time_from_treatment_start': 0}
         treatment_data = query('sample_id', 'response', 'cell_type', 'count', 'total', constraint=constraint)
         treatment_data['percentage'] = treatment_data['count'] / treatment_data['total'] * 100
-        # cell_type_pops = treatment_data.pivot(index='sample_id', columns='cell_type', values=['percentage', 'response'])
-        # cell_type_pops['percentage'] = cell_type_pops['count'] / cell_type_pops['total'] * 100
-        # print(cell_type_pops)
-        # boxplot = cell_type_pops.boxplot()
-        # boxplot = treatment_data.boxplot(column='count', by=['cell_type', 'response'], rot=45)
         boxplotfig = boxplot(treatment_data)
         plt.suptitle('')
         plt.title(f'Cell Frequency in {constraint['condition']} Patients Treated with {constraint['treatment']}')
@@ -444,6 +477,7 @@ if __name__ == "__main__":
         breakdown = pd.concat([breakdown, subset_info.groupby('project_id')[['n_samples']].sum()])
         breakdown['percentage'] = breakdown['n_samples']/subset_info['n_samples'].sum() * 100
         
+        # show heirarchical indexes for clarity of how counts are split
         breakdown = pd.DataFrame(breakdown.__array__(), pd.MultiIndex.from_tuples([
                 ('sex', 'Male'),        
                 ('sex', 'Female'),
