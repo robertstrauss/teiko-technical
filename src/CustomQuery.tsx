@@ -37,7 +37,7 @@ const CustomStats = () => {
             setError(null);
             try {
                 const querystring = Object.entries(query).map(([col, vals]) => `${col}=${vals.join(',')}`).join('&')
-                const response = await axios.get(`http://localhost:8000/analysis/treatment_statistics/?`);
+                const response = await axios.get(`/analysis/treatment_statistics/?`);
                 const rawData = response.data;
                 // unpack list into records
                 const transformedData: TreatmentData[] = rawData.cell_type.map((_: any, index: number) => (
@@ -76,7 +76,7 @@ const CustomStats = () => {
             try {
 
                 for (let col in possibleOptions) {
-                    axios.get(`http://localhost:8000/entry_values/?col=${col}`).then(response => {
+                    axios.get(`/entry_values/?col=${col}`).then(response => {
                         if (response.data[col])
                         possibleOptions[col] = response.data[col];
                         setPossibleOptions(possibleOptions);
