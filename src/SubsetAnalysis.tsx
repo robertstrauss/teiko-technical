@@ -163,33 +163,31 @@ const SubsetAnalysis = () => {
                 </table>
                 </div> */}
 
-                {['prj1', 'prj2', 'prj3'].map(prj => <>
-                    <div className="sectionblock">
+                {['prj1', 'prj2', 'prj3'].map((prj, i) => 
+                    <div key={i} className="sectionblock">
                         <h3>Project {prj} Sample Counts</h3>
-                    <table className="data-table">
-                        <thead><tr>
-                                <th></th>
-                                <th>Responders</th>
-                                <th>Non-Responders</th>
-                        </tr></thead>
-                        <tbody><tr>
-                            <th>Male</th>
-                            <td>{getTotal({sex: 'M', response: 'yes', project_id: prj})}</td>
-                            <td>{getTotal({sex: 'M', response: 'no', project_id: prj})}</td>
-                        </tr>
-                        <tr>
-                            <th>Female</th>
-                            <td>{getTotal({sex: 'F', response: 'yes', project_id: prj})}</td>
-                            <td>{getTotal({sex: 'F', response: 'no', project_id: prj})}</td>
-                        </tr></tbody>
-                    </table>
-                    </div>
-                </>)}
+                        <table className="data-table">
+                            <thead><tr>
+                                    <th></th>
+                                    <th>Responders</th>
+                                    <th>Non-Responders</th>
+                            </tr></thead>
+                            <tbody><tr>
+                                <th>Male</th>
+                                <td>{getTotal({sex: 'M', response: 'yes', project_id: prj})}</td>
+                                <td>{getTotal({sex: 'M', response: 'no', project_id: prj})}</td>
+                            </tr>
+                            <tr>
+                                <th>Female</th>
+                                <td>{getTotal({sex: 'F', response: 'yes', project_id: prj})}</td>
+                                <td>{getTotal({sex: 'F', response: 'no', project_id: prj})}</td>
+                            </tr></tbody>
+                        </table>
+                    </div>)}
             </div>
             <div className="section">
                 {/* Pie Charts showing how samples greak down among sex, response, and projects */}
                 <ChartRow minCardWidth="350px">
-                {/* <div className="sectionblock"> */}
                     <ReactECharts option={{...pieOptions,
                         title: { text: 'Subject Gender Breakdown', left: 'center' },
                         series: [{...pieOptions.series[0], data: [
@@ -197,16 +195,14 @@ const SubsetAnalysis = () => {
                             {name: 'Female', value: getTotal({sex: 'F'})}
                         ]}]
                     }} notMerge={true} style={{ height: '400px', width: '100%' }} />
-                {/* </div>
-                <div className="sectionblock"> */}
+
                     <ReactECharts option={{...pieOptions,
                         title: { text: 'Treatment Response Breakdown', left: 'center' },
                         series: [{...pieOptions.series[0], data: [
                             {name: 'Responders', value: getTotal({response: 'yes'})},
                             {name: 'Non-responders', value: getTotal({response: 'no'})}
                     ]}]}} notMerge={true} style={{ height: '400px', width: '100%' }} />
-                {/* </div>
-                <div className="sectionblock"> */}
+
                     <ReactECharts option={{...pieOptions, 
                         title: { text: 'Project Sample Breakdown', left: 'center' },
                         series: [{...pieOptions.series[0], data: [
@@ -214,7 +210,6 @@ const SubsetAnalysis = () => {
                             {name: 'prj2', value: getTotal({project_id: 'prj2'})},
                             {name: 'prj3', value: getTotal({project_id: 'prj3'})}
                     ]}]}} notMerge={true} style={{ height: '400px', width: '100%' }} />
-                {/* </div> */}
                 </ChartRow>
             </div>
             {/* Sankey Diagram */}

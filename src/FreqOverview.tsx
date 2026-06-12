@@ -1,5 +1,7 @@
 import { useRef, useEffect, useState } from "react";
 import axios from "axios";
+import ReactECharts from 'echarts-for-react';
+import { TreatmentBoxStats, getBoxPlotOptions, BOX_STATS } from "./TreatmentStats";
 
 // format of the incoming JSON from the python/SQL API containing relative cell population data
 interface FrequencyData {
@@ -14,10 +16,13 @@ const DATA_KEYS = ['sample_id', 'total', 'cell_type', 'count', 'relative_freq'];
 
 const FreqOverview = () => {
     const [data, setData] = useState<FrequencyData[]>([]);
-    const [startSample, setStartSample] = useState(0);
-    const [numSamples, setNumSamples] = useState(50); // Fetch more samples at a time for smoother scrolling
+    const [offset, setoffset] = useState(0);
+    const [limit, setlimit] = useState(50); // Fetch more samples at a time for smoother scrolling
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [cellTypes, setCellTypes] = useState<string[]>([]);
+    // const [cellMeanFreqs, setCMF] = useState<{[key:string]: number}>({});
+    const [cellFreqData, setCellFreqData] = useState<TreatmentBoxStats[]>([]);
     const tableContainerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -27,7 +32,7 @@ const FreqOverview = () => {
             setLoading(true);
             setError(null);
             try {
-                const response = await axios.get(`http://localhost:8000/analysis/frequency_overview/?start_sample_id=${startSample}&n_samples=${numSamples}`);
+                const response = await axios.get(`http://localhost:8000/analysis/frequency_overview/?offset=${offset}&limit=${limit}`);
                 const rawData = response.data;
                 // unpack list into records ( {col: [val1, val2, ...]} -> [{col: val1}, {col: val2}, ...] )
                 const transformedData: FrequencyData[] = rawData.cell_type.map((_: any, index: number) => (
@@ -54,136 +59,172 @@ const FreqOverview = () => {
         };
 
         fetchData();
-    }, [startSample, numSamples]);
+    }, [offset, limit]);
 
+    useEffect(() => {
+        if (cellFreqData && Object.entries(cellFreqData).length > 0) return;
+        const fetchData = async () => {
+            setError(null);
+            try {
+                for (let ct of cellTypes) {
+                    const response = await axios.get(`http://localhost:8000/analysis/treatment_statistics/?condition=*&treatment=*&sample_type=*`);
+                    const rawData = response.data;
+                    if (rawData && rawData.cell_type) {
+                        const transformedData: TreatmentBoxStats[] = rawData.cell_type.map((_: any, index: number) => (
+                            Object.fromEntries(BOX_STATS.map(key => [key, rawData[key][index]]))
+                        ));
+
+                        setCellFreqData(transformedData);
+                    }
+                }
+            } catch (err) {
+                if (axios.isAxiosError(err)) {
+                    if (err.response) {
+                        setError(`Error: ${err.response.status} ${err.response.statusText}`);
+                    } else if (err.request) {
+                        setError('Network Error: No response received from server.');
+                    } else {
+                        setError(`Error: ${err.message}`);
+                    }
+                } else {
+                    setError('An unexpected error occurred.');
+                }
+                console.error(err);
+            }
+        };
+
+        fetchData();
+    }, [cellTypes]);
+
+    // useEffect(() => {
+    //     if (cellMeanFreqs && Object.entries(cellMeanFreqs).length > 0) return;
+    //     const fetchData = async () => {
+    //         setError(null);
+    //         try {
+    //             console.log("CELL TYPES", cellTypes);
+    //             for (let ct of cellTypes) {
+    //                 const response = await axios.get(`http://localhost:8000/analysis/column_mean/?col=relative_freq&cell_type=${ct}`);
+    //                 const rawData = response.data;
+    //                 if (!isNaN(rawData)) {
+    //                     cellMeanFreqs[ct] = rawData;
+    //                     setCMF(cellMeanFreqs)
+    //                 }
+    //             }
+    //         } catch (err) {
+    //             if (axios.isAxiosError(err)) {
+    //                 if (err.response) {
+    //                     setError(`Error: ${err.response.status} ${err.response.statusText}`);
+    //                 } else if (err.request) {
+    //                     setError('Network Error: No response received from server.');
+    //                 } else {
+    //                     setError(`Error: ${err.message}`);
+    //                 }
+    //             } else {
+    //                 setError('An unexpected error occurred.');
+    //             }
+    //             console.error(err);
+    //         }
+    //     };
+
+    //     fetchData();
+    // }, [cellTypes]);
+
+    // fetch cell types
+    useEffect(() => {
+        if (cellTypes && cellTypes.length > 0) return;
+        (async () => {
+            try {
+                const response = await axios.get(`http://localhost:8000/possible_values/?col=cell_type`);
+                const rawData = response.data;
+                if (rawData && Object.values(rawData) && Object.values(rawData).length > 0) {
+                    setCellTypes(Object.values(rawData));
+                }
+            } catch (err) {
+                if (axios.isAxiosError(err)) {
+                    if (err.response) {
+                        setError(`Error: ${err.response.status} ${err.response.statusText}`);
+                    } else if (err.request) {
+                        setError('Network Error: No response received from server.');
+                    } else {
+                        setError(`Error: ${err.message}`);
+                    }
+                } else {
+                    setError('An unexpected error occurred.');
+                }
+                console.error(err);
+            }
+        })();
+    });
 
 
     const handlePrev = () => {
-        setStartSample(prev => Math.max(1, prev - numSamples));
+        setoffset(prev => Math.max(1, prev - limit));
     };
 
     const handleNext = () => {
-        setStartSample(prev => prev + numSamples);
+        setoffset(prev => prev + limit);
     };
 
-    const handleNumSamplesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handlelimitChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const value = parseInt(e.target.value, 10);
         if (!isNaN(value) && value > 0 && value <= 250) {
-            setNumSamples(value);
+            setlimit(value);
         }
     };
+
+    const handleOffsetChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = parseInt(e.target.value, 10);
+        if (!isNaN(value) && value >= 0) {
+            setoffset(value);
+        }
+    }
+
+    const pieOptions = {
+        tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+        legend: { orient: 'vertical', left: 'left' },
+        series: [
+            {
+                type: 'pie',
+                radius: '60%',
+                label: {
+                    position: 'inside',
+                    formatter: '{b}\n{c}\n{d}%'
+                },
+                emphasis: {
+                    itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0, 0, 0, 0.5)' }
+                }
+            }
+        ]
+    }
+
 
     return (<>
                 {error && <p className="error-message">{error}</p>}
                 <div>
-                    <h1>Population Frequency Overview</h1>
+                    <h1>Cell Population Frequency Overview</h1>
                 </div>
 
-                {/* <div className="collapsible-section"> */}
-                    {/* <div className="collapsible-header" onClick={() => setChartVisible(!chartVisible)}>
-                        <span className={`collapsible-icon ${chartVisible ? 'open' : ''}`}>&#9656;</span>
-                        <h3>Graphics</h3>
-                    </div> */}
-                    {/* {chartVisible && (
-                        <div className="chart-container">
-                            <div style={{ width: '33%' }}>
-                                <VictoryPie
-                                    data={pieData}
-                                    colorScale={COLORS}
-                                    labels={({ datum }) => `${datum.x}: ${datum.y.toFixed(2)}%`}
-                                    labelComponent={<VictoryTooltip/>}
-                                />
-                            </div>
-                            <div style={{ width: '33%' }}>
-                                <VictoryChart containerComponent={<VictoryVoronoiContainer/>}>
-                                    {showDistPlot && distData.map((popData, index) => (
-                                        <VictoryArea
-                                            key={popData.population}
-                                            data={popData.data}
-                                            style={{ data: { fill: COLORS[index % COLORS.length], opacity: 0.5 } }}
-                                        />
-                                    ))}
-                                    {showDataPoints && (
-                                        <VictoryScatter
-                                            data={scatterData}
-                                            style={{ data: { fill: "red" } }}
-                                            size={2}
-                                        />
-                                    )}
-                                </VictoryChart>
-                            </div>
-                            <div style={{ width: '33%' }}>
-                                <VictoryChart>
-                                    <VictoryStack colorScale={COLORS}>
-                                        {populations.map(pop => (
-                                            <VictoryBar
-                                                key={pop}
-                                                data={stackedBarData}
-                                                x="name"
-                                                y={pop}
-                                            />
-                                        ))}
-                                    </VictoryStack>
-                                    <VictoryLegend
-                                        x={125} y={10}
-                                        orientation="horizontal"
-                                        gutter={20}
-                                        style={{ border: { stroke: "black" } }}
-                                        data={populations.map((pop, i) => ({ name: pop, symbol: { fill: COLORS[i % COLORS.length] } }))}
-                                    />
-                                </VictoryChart>
-                            </div>
-                        </div>
-                    )} */}
-                    {/* <div className="chart-options">
-                        <div>
-                            <input type="checkbox" id="showDistPlot" checked={showDistPlot} onChange={() => handleCheckboxChange('dist')} />
-                            <label htmlFor="showDistPlot">Show Distribution</label>
-                        </div>
-                        <div>
-                            <input type="checkbox" id="showDataPoints" checked={showDataPoints} onChange={() => handleCheckboxChange('points')} />
-                            <label htmlFor="showDataPoints">Show Data Points</label>
-                        </div>
-                        <div>
-                            <label>
-                                <input type="radio" value="percentage" checked={dataType === 'percentage'} onChange={() => setDataType('percentage')} />
-                                Percentage
-                            </label>
-                            <label>
-                                <input type="radio" value="raw" checked={dataType === 'raw'} onChange={() => setDataType('raw')} />
-                                Raw Count
-                            </label>
-                        </div>
-                    </div>
-                </div> */}
-
                 <div className="section">
-                    {/* <div className="collapsible-header" onClick={() => setTableVisible(!tableVisible)}>
-                        <span className={`collapsible-icon ${tableVisible ? 'open' : ''}`}>&#9656;</span>
-                        <h3>Data</h3>
-                    </div> */}
-                    {/* <div>
-                        Get data on <select onInput={}>
-                                <option value={COLUMNS_SAMPLES}>Samples</option>
-                                <option value={COLUMNS_SUBJECTS}>Subjects</option>
-                                <option value={COLUMNS_CELLS}>Cell Counts</option>
-                            </select>: {FieldSelector()}
-                    </div> */}
-                    {(<div className="pagedtable">
+                    {data && (<div className="pagedtable">
                         <div className="table-paginator">
-                            <label htmlFor="numSamples">Number of samples to summarize:</label>
+                            <label htmlFor="limit">Number of samples to display:</label>
                             <input
-                                id="numSamples"
+                                id="limit"
                                 type="number"
-                                value={numSamples}
-                                onChange={handleNumSamplesChange}
+                                value={limit}
+                                onChange={handlelimitChange}
                                 style={{ width: '30px', padding: '5px', borderRadius: '4px', border: '1px solid #ccc' }}
                             />
                             <button onClick={handlePrev} style={{ padding: '8px 12px', borderRadius: '4px', border: 'none', background: '#007bff', color: 'white', cursor: 'pointer' }}>
                                 &larr;
                             </button>
                             <span style={{ fontStyle: 'italic', color: '#555' }}>
-                                Samples {String(startSample).padStart(4, '0')} - {String(startSample + numSamples - 1).padStart(4, '0')}
+                                Samples <input 
+                                    style={{ width: '30px', padding: '5px', borderRadius: '4px', border: '1px solid #ccc' }}
+                                    onChange={handleOffsetChange}
+                                    value={offset} />
+                                - {String(offset + limit - 1).padStart(4, '0')}
+
                             </span>
                             <button onClick={handleNext} style={{ padding: '8px 12px', borderRadius: '4px', border: 'none', background: '#007bff', color: 'white', cursor: 'pointer' }}>
                                 &rarr;
@@ -202,7 +243,7 @@ const FreqOverview = () => {
                                 </thead>
                                 <tbody >
                                     {data.map((row, index) => (
-                                        <tr className="table-row">
+                                        <tr className="table-row" key={index}>
                                             <td className="table-entry">{row.sample_id}</td>
                                             <td className="table-entry">{row.total}</td>
                                             <td className="table-entry">{row.cell_type}</td>
@@ -214,6 +255,16 @@ const FreqOverview = () => {
                             </table>
                         </div>
                     </div>)}
+                    <div className="sectionblock">
+                    {/* {JSON.stringify(cellFreqData)} */}
+                    {/* Cell types in data: {cellTypes.join(', ')} */}
+                    {cellFreqData && 
+                        <ReactECharts
+                            option={{...getBoxPlotOptions(cellFreqData.filter(d => d.time_from_treatment_start == 0)),
+                                    title: {text: `Cell Population Relative \nFrequency (whole dataset)`, left: 'center', top: '0'}
+                            }} notMerge={true} style={{height: '500px', width: '500px'}}/>
+                    }
+                    </div>
                 </div>
             </>
         );
