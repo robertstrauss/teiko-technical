@@ -162,7 +162,7 @@ def get_possible_values(col: str, constraint = {}, limit=None, offset=0):
 
 # Most abstract injection-safe query, access to fields from all tables
 @app.get(f"/query/")
-def api_query(*fields, request: Requeset, sort=['sample_id'], limit: int = 100, offset: int = 0):
+def api_query(*fields, request: Request, sort=['sample_id'], limit: int = 100, offset: int = 0):
     constraint = dict(request.query_params)
     constraint.pop('col', None)
     constraint.pop('sort', None)
